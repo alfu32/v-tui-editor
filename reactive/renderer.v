@@ -15,9 +15,9 @@ pub mut:
 // copy: explicit, even though assignment already copies
 pub fn (r TermRect) copy() TermRect {
 	return TermRect{
-		x: r.x
-		y: r.y
-		width: r.width
+		x:      r.x
+		y:      r.y
+		width:  r.width
 		height: r.height
 	}
 }
@@ -39,12 +39,13 @@ pub fn (a TermRect) add(b TermRect) TermRect {
 	x2 := if a.x + a.width > b.x + b.width { a.x + a.width } else { b.x + b.width }
 	y2 := if a.y + a.height > b.y + b.height { a.y + a.height } else { b.y + b.height }
 	return TermRect{
-		x: x1
-		y: y1
-		width: x2 - x1
+		x:      x1
+		y:      y1
+		width:  x2 - x1
 		height: y2 - y1
 	}
 }
+
 pub struct TermProps {
 pub mut:
 	top    int
@@ -123,28 +124,31 @@ pub mut:
 	wheel   int
 }
 
+// NOTE: now includes terminal size (current frame)
 pub struct UiEvent {
 pub mut:
-	kind      UiEventKind
-	target    int   // id in rendered list
-	path      []int // outer -> inner, ids
-	key       KeyState
-	mouse     MouseState
-	propagate bool = true
+	kind        UiEventKind
+	target      int   // id in rendered node list
+	path        []int // outer -> inner, ids
+	key         KeyState
+	mouse       MouseState
+	term_width  int
+	term_height int
+	propagate   bool = true
 }
 
 pub type UiEventHandler = fn (mut UiEvent)
 
 pub struct TermEventHandlers {
 pub:
-	click      ?UiEventHandler = none
-	mouse_move ?UiEventHandler = none
-	mouse_down ?UiEventHandler = none
-	mouse_up   ?UiEventHandler = none
-	key_down   ?UiEventHandler = none
-	key_up     ?UiEventHandler = none
-	focus      ?UiEventHandler = none
-	blur       ?UiEventHandler = none
+	click      ?UiEventHandler
+	mouse_move ?UiEventHandler
+	mouse_down ?UiEventHandler
+	mouse_up   ?UiEventHandler
+	key_down   ?UiEventHandler
+	key_up     ?UiEventHandler
+	focus      ?UiEventHandler
+	blur       ?UiEventHandler
 }
 
 // --------------------- Rendered nodes for events ---------------------
@@ -157,7 +161,7 @@ pub:
 	events TermEventHandlers
 }
 
-// Context passed down every render pass
+// Context passed down to *every* render() call
 pub struct RenderContext {
 pub mut:
 	tui      &tui.Context
@@ -196,320 +200,6 @@ pub:
 	events   TermEventHandlers = TermEventHandlers{}
 	children []VNode           = []VNode{}
 }
-
-// Rect union helper
-fn union_rect(a TermRect, b TermRect) TermRect {
-	if a.width == 0 && a.height == 0 {
-		return b
-	}
-	if b.width == 0 && b.height == 0 {
-		return a
-	}
-	x1 := if a.x < b.x { a.x } else { b.x }
-	y1 := if a.y < b.y { a.y } else { b.y }
-	x2 := if a.x + a.width > b.x + b.width { a.x + a.width } else { b.x + b.width }
-	y2 := if a.y + a.height > b.y + b.height { a.y + a.height } else { b.y + b.height }
-	return TermRect{
-		x:      x1
-		y:      y1
-		width:  x2 - x1
-		height: y2 - y1
-	}
-}
-
-// --------------------- Built-in components (all just VNodes) ---------------------
-
-// BOX: filled rect, grows parent, children rendered inside.
-fn render_box(node VNode, origin_x int, origin_y int, mut ctx RenderContext) TermRect {
-	mut rect := TermRect{
-		x:      origin_x + node.props.left
-		y:      origin_y + node.props.top
-		width:  node.props.width
-		height: node.props.height
-	}
-	if rect.width == 0 {
-		rect.width = ctx.viewport.width
-	}
-	if rect.height == 0 {
-		rect.height = ctx.viewport.height
-	}
-
-	_ = ctx.register(rect, node.style, node.events)
-
-	// draw immediately
-	mut s := node.style.default
-	ctx.tui.set_bg_color(r: s.background.r, g: s.background.g, b: s.background.b)
-	ctx.tui.set_fg_color(r: s.foreground.r, g: s.foreground.g, b: s.foreground.b)
-	for dy := 0; dy < rect.height; dy++ {
-		for dx := 0; dx < rect.width; dx++ {
-			ctx.tui.draw_text(rect.x + dx, rect.y + dy, ' ')
-		}
-	}
-
-	mut combined := rect
-	for child in node.children {
-		child_rect := child.render(child, rect.x, rect.y, mut ctx)
-		combined = union_rect(combined, child_rect)
-	}
-	return combined
-}
-
-pub fn box(spec NodeSpec) VNode {
-	return VNode{
-		render:   render_box
-		props:    spec.props
-		style:    spec.style
-		events:   spec.events
-		children: spec.children
-	}
-}
-
-// BORDER BOX: border only, grows parent, children inside.
-fn render_border_box(node VNode, origin_x int, origin_y int, mut ctx RenderContext) TermRect {
-	mut rect := TermRect{
-		x:      origin_x + node.props.left
-		y:      origin_y + node.props.top
-		width:  node.props.width
-		height: node.props.height
-	}
-	if rect.width == 0 {
-		rect.width = ctx.viewport.width
-	}
-	if rect.height == 0 {
-		rect.height = ctx.viewport.height
-	}
-
-	_ = ctx.register(rect, node.style, node.events)
-
-	mut s := node.style.default
-	ctx.tui.set_bg_color(r: s.background.r, g: s.background.g, b: s.background.b)
-	ctx.tui.set_fg_color(s.foreground.r, s.foreground.g, s.foreground.b)
-
-	if rect.width > 1 && rect.height > 1 {
-		// corners
-		ctx.tui.draw_text(rect.x, rect.y, '+')
-		ctx.tui.draw_text(rect.x + rect.width - 1, rect.y, '+')
-		ctx.tui.draw_text(rect.x, rect.y + rect.height - 1, '+')
-		ctx.tui.draw_text(rect.x + rect.width - 1, rect.y + rect.height - 1, '+')
-		// top/bottom
-		for dx := 1; dx < rect.width - 1; dx++ {
-			ctx.tui.draw_text(rect.x + dx, rect.y, '-')
-			ctx.tui.draw_text(rect.x + dx, rect.y + rect.height - 1, '-')
-		}
-		// left/right
-		for dy := 1; dy < rect.height - 1; dy++ {
-			ctx.tui.draw_text(rect.x, rect.y + dy, '|')
-			ctx.tui.draw_text(rect.x + rect.width - 1, rect.y + dy, '|')
-		}
-	}
-
-	mut combined := rect
-	for child in node.children {
-		child_rect := child.render(child, rect.x, rect.y, mut ctx)
-		combined = union_rect(combined, child_rect)
-	}
-	return combined
-}
-
-pub fn border_box(spec NodeSpec) VNode {
-	return VNode{
-		render:   render_border_box
-		props:    spec.props
-		style:    spec.style
-		events:   spec.events
-		children: spec.children
-	}
-}
-
-// TEXT: draws a line of text, grows parent by its rect (unless you want otherwise).
-fn render_text(node VNode, origin_x int, origin_y int, mut ctx RenderContext) TermRect {
-	x := origin_x + node.props.left
-	y := origin_y + node.props.top
-
-	mut w := node.props.width
-	if w == 0 {
-		w = node.props.text.len
-	}
-	mut h := node.props.height
-	if h == 0 {
-		h = 1
-	}
-
-	rect := TermRect{
-		x:      x
-		y:      y
-		width:  w
-		height: h
-	}
-
-	_ = ctx.register(rect, node.style, node.events)
-
-	mut s := node.style.default
-	ctx.tui.set_bg_color(r: s.background.r, g: s.background.g, b: s.background.b)
-	ctx.tui.set_fg_color(s.foreground.r, s.foreground.g, s.foreground.b)
-	ctx.tui.draw_text(rect.x, rect.y, node.props.text)
-
-	return rect
-}
-
-pub fn text(spec NodeSpec) VNode {
-	return VNode{
-		render:   render_text
-		props:    spec.props
-		style:    spec.style
-		events:   spec.events
-		children: spec.children
-	}
-}
-
-// HORIZONTAL layout: lays out children left→right, returns union, optionally registers itself.
-fn render_horizontal(node VNode, origin_x int, origin_y int, mut ctx RenderContext) TermRect {
-	mut x := origin_x + node.props.left
-	mut y := origin_y + node.props.top
-	mut combined := TermRect{
-		x:      x
-		y:      y
-		width:  0
-		height: 0
-	}
-
-	for child in node.children {
-		child_rect := child.render(child, x, y, mut ctx)
-		combined = union_rect(combined, child_rect)
-		x = child_rect.x + child_rect.width
-	}
-
-	// If you want horizontal container itself to receive events, register it:
-	if node.events.click != none || node.events.mouse_move != none || node.events.mouse_down != none
-		|| node.events.mouse_up != none || node.events.key_down != none
-		|| node.events.key_up != none || node.events.focus != none || node.events.blur != none {
-		_ = ctx.register(combined, node.style, node.events)
-	}
-
-	return combined
-}
-
-pub fn horizontal(spec NodeSpec) VNode {
-	return VNode{
-		render:   render_horizontal
-		props:    spec.props
-		style:    spec.style
-		events:   spec.events
-		children: spec.children
-	}
-}
-
-// VERTICAL layout: children top→bottom.
-fn render_vertical(node VNode, origin_x int, origin_y int, mut ctx RenderContext) TermRect {
-	mut x := origin_x + node.props.left
-	mut y := origin_y + node.props.top
-	mut combined := TermRect{
-		x:      x
-		y:      y
-		width:  0
-		height: 0
-	}
-
-	for child in node.children {
-		child_rect := child.render(child, x, y, mut ctx)
-		combined = union_rect(combined, child_rect)
-		y = child_rect.y + child_rect.height
-	}
-
-	if node.events.click != none || node.events.mouse_move != none || node.events.mouse_down != none
-		|| node.events.mouse_up != none || node.events.key_down != none
-		|| node.events.key_up != none || node.events.focus != none || node.events.blur != none {
-		_ = ctx.register(combined, node.style, node.events)
-	}
-
-	return combined
-}
-
-pub fn vertical(spec NodeSpec) VNode {
-	return VNode{
-		render:   render_vertical
-		props:    spec.props
-		style:    spec.style
-		events:   spec.events
-		children: spec.children
-	}
-}
-
-// HLINE: length from props.width, does NOT grow parent box.
-fn render_hline(node VNode, origin_x int, origin_y int, mut ctx RenderContext) TermRect {
-	x := origin_x + node.props.left
-	y := origin_y + node.props.top
-	mut len := node.props.width
-	if len <= 0 {
-		len = 1
-	}
-	rect := TermRect{
-		x:      x
-		y:      y
-		width:  len
-		height: 1
-	}
-	_ = ctx.register(rect, node.style, node.events)
-
-	mut s := node.style.default
-	ctx.tui.set_bg_color(r: s.background.r, g: s.background.g, b: s.background.b)
-	ctx.tui.set_fg_color(s.foreground.r, s.foreground.g, s.foreground.b)
-	for dx := 0; dx < rect.width; dx++ {
-		ctx.tui.draw_text(rect.x + dx, rect.y, '-')
-	}
-
-	// does not grow parent: return empty rect
-	return TermRect{}
-}
-
-pub fn hline(spec NodeSpec) VNode {
-	return VNode{
-		render:   render_hline
-		props:    spec.props
-		style:    spec.style
-		events:   spec.events
-		children: []VNode{}
-	}
-}
-
-// VLINE: length from props.height, does NOT grow parent box.
-fn render_vline(node VNode, origin_x int, origin_y int, mut ctx RenderContext) TermRect {
-	x := origin_x + node.props.left
-	y := origin_y + node.props.top
-	mut len := node.props.height
-	if len <= 0 {
-		len = 1
-	}
-	rect := TermRect{
-		x:      x
-		y:      y
-		width:  1
-		height: len
-	}
-	_ = ctx.register(rect, node.style, node.events)
-
-	mut s := node.style.default
-	ctx.tui.set_bg_color(r: s.background.r, g: s.background.g, b: s.background.b)
-	ctx.tui.set_fg_color(s.foreground.r, s.foreground.g, s.foreground.b)
-	for dy := 0; dy < rect.height; dy++ {
-		ctx.tui.draw_text(rect.x, rect.y + dy, '|')
-	}
-
-	return TermRect{}
-}
-
-pub fn vline(spec NodeSpec) VNode {
-	return VNode{
-		render:   render_vline
-		props:    spec.props
-		style:    spec.style
-		events:   spec.events
-		children: []VNode{}
-	}
-}
-
-// Scrollbox etc. are just more VNodes with their own render functions that choose
-// which children to call based on scroll state.
 
 // --------------------- Root view type ---------------------
 
@@ -599,12 +289,14 @@ fn (mut r Renderer) handle_mouse_event(kind UiEventKind) {
 	}
 
 	mut ev := UiEvent{
-		kind:      kind
-		target:    target
-		path:      path
-		key:       r.last_key
-		mouse:     r.last_mouse
-		propagate: true
+		kind:        kind
+		target:      target
+		path:        path
+		key:         r.last_key
+		mouse:       r.last_mouse
+		term_width:  r.ctx.viewport.width
+		term_height: r.ctx.viewport.height
+		propagate:   true
 	}
 	r.dispatch_event(mut ev, path)
 }
@@ -616,12 +308,14 @@ fn (mut r Renderer) handle_key_event(kind UiEventKind) {
 	target := r.focus.path[r.focus.path.len - 1]
 
 	mut ev := UiEvent{
-		kind:      kind
-		target:    target
-		path:      r.focus.path.clone()
-		key:       r.last_key
-		mouse:     r.last_mouse
-		propagate: true
+		kind:        kind
+		target:      target
+		path:        r.focus.path.clone()
+		key:         r.last_key
+		mouse:       r.last_mouse
+		term_width:  r.ctx.viewport.width
+		term_height: r.ctx.viewport.height
+		propagate:   true
 	}
 	r.dispatch_event(mut ev, r.focus.path.clone())
 }
@@ -644,7 +338,8 @@ fn (r &Renderer) hit_path(x int, y int) []int {
 			}
 		}
 	}
-	hits.sort(a.area < b.area) // smallest area first
+	// sort by area ascending (inner = smaller area)
+	hits.sort(a.area < b.area)
 
 	// want outer -> inner: largest area last → reverse
 	mut path := []int{}
@@ -667,15 +362,16 @@ fn (mut r Renderer) update_focus(new_path []int) {
 		node := r.node_by_id(id) or { continue }
 		if node.events.blur != none {
 			mut ev := UiEvent{
-				kind:      .blur
-				target:    id
-				path:      old_path[..i + 1]
-				key:       r.last_key
-				mouse:     r.last_mouse
-				propagate: true
+				kind:        .blur
+				target:      id
+				path:        old_path[..i + 1].clone()
+				key:         r.last_key
+				mouse:       r.last_mouse
+				term_width:  r.ctx.viewport.width
+				term_height: r.ctx.viewport.height
+				propagate:   true
 			}
-			// (node.events.blur or { UiEventHandler(nop_handler) })
-			mut ev
+			node.events.blur(mut ev)
 		}
 	}
 
@@ -685,15 +381,16 @@ fn (mut r Renderer) update_focus(new_path []int) {
 		node := r.node_by_id(id) or { continue }
 		if node.events.focus != none {
 			mut ev := UiEvent{
-				kind:      .focus
-				target:    id
-				path:      new_path[..i + 1]
-				key:       r.last_key
-				mouse:     r.last_mouse
-				propagate: true
+				kind:        .blur
+				target:      id
+				path:        old_path[..i + 1].clone()
+				key:         r.last_key
+				mouse:       r.last_mouse
+				term_width:  r.ctx.viewport.width
+				term_height: r.ctx.viewport.height
+				propagate:   true
 			}
-			(node.events.focus or { UiEventHandler(nop_handler) })
-			mut ev
+			node.events.focus(mut ev)
 		}
 	}
 
@@ -730,39 +427,33 @@ fn (mut r Renderer) dispatch_event(mut e UiEvent, path []int) {
 fn (r &Renderer) dispatch_to_node(mut e UiEvent, node RenderedNode) {
 	match e.kind {
 		.click {
-			if node.events.click != none {
-				(node.events.click or { UiEventHandler(nop_handler) })
-				mut e
+			if handler := node.events.click {
+				handler(mut e)
 			}
 		}
 		.mouse_move {
-			if node.events.mouse_move != none {
-				(node.events.mouse_move or { UiEventHandler(nop_handler) })
-				mut e
+			if handler := node.events.mouse_move {
+				handler(mut e)
 			}
 		}
 		.mouse_down {
-			if node.events.mouse_down != none {
-				(node.events.mouse_down or { UiEventHandler(nop_handler) })
-				mut e
+			if handler := node.events.mouse_down {
+				handler(mut e)
 			}
 		}
 		.mouse_up {
-			if node.events.mouse_up != none {
-				(node.events.mouse_up or { UiEventHandler(nop_handler) })
-				mut e
+			if handler := node.events.mouse_up {
+				handler(mut e)
 			}
 		}
 		.key_down {
-			if node.events.key_down != none {
-				(node.events.key_down or { UiEventHandler(nop_handler) })
-				mut e
+			if handler := node.events.key_down {
+				handler(mut e)
 			}
 		}
 		.key_up {
-			if node.events.key_up != none {
-				(node.events.key_up or { UiEventHandler(nop_handler) })
-				mut e
+			if handler := node.events.key_up {
+				handler(mut e)
 			}
 		}
 		else {}
@@ -773,13 +464,15 @@ fn (r &Renderer) dispatch_to_node(mut e UiEvent, node RenderedNode) {
 
 fn (mut r Renderer) update_raw_input(e &tui.Event) {
 	match e.typ {
-		.key_down, .key_up {
+		.key_down {
 			r.last_key.code = u32(e.code)
-			r.last_key.char = e.ch
+			r.last_key.char = e.ascii
+			// fill modifiers if term.ui exposes them
 		}
 		.mouse_move, .mouse_down, .mouse_up {
 			r.last_mouse.x = e.x
 			r.last_mouse.y = e.y
+			// fill buttons if term.ui exposes them
 		}
 		else {}
 	}
@@ -789,7 +482,7 @@ fn (r &Renderer) map_event_kind(e &tui.Event) UiEventKind {
 	// adjust to your term.ui enums
 	match e.typ {
 		.key_down { return .key_down }
-		.key_up { return .key_up }
+		// .key_up { return .key_up }
 		.mouse_move { return .mouse_move }
 		.mouse_down { return .mouse_down }
 		.mouse_up { return .mouse_up }
