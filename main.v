@@ -27,8 +27,9 @@ mut:
 	resizing         bool
 	viewport_width   int = 80
 	viewport_height  int = 24
-	files            []string
-	selected_idx     int = -1
+	tree             &FileTree = unsafe { nil }
+	file_entries     []FileTreeEntry
+	selected_file    string
 	file_lines       []string
 	mouse_x          int
 	mouse_y          int
@@ -68,19 +69,6 @@ fn track_pointer(mut state LayoutState, mut e reactive.UiEvent) {
 	}
 }
 
-fn load_directory_listing() []string {
-	entries := os.ls('.') or { return []string{} }
-	mut files := []string{}
-	for name in entries {
-		if os.is_dir(name) {
-			continue
-		}
-		files << name
-	}
-	files.sort()
-	return files
-}
-
 fn read_file_preview(path string) []string {
 	content := os.read_bytes(path) or {
 		return ["Failed to open ${path}: ${err.msg()}"]
@@ -96,35 +84,57 @@ fn build_file_list_markup(mut state LayoutState, left_width int, main_height int
 	}
 	row_height := 1
 	mut row := 0
-	for idx, name in state.files {
+	for idx, entry in state.file_entries {
 		if row >= available {
 			break
 		}
-		line_top := 3 + row*row_height
+		line_top := 3 + row * row_height
 		mut entry_width := if left_width > 4 { left_width - 4 } else { left_width }
 		if entry_width < 1 {
 			entry_width = 1
 		}
-		title := escape_text(name)
-		fg := if idx == state.selected_idx { "#ffffff" } else { "#d0d0d0" }
-		bg := if idx == state.selected_idx { "#2f3e5c" } else { "#1f2736" }
-		file_idx := idx
-		file_name := name
-		node_tag := "file-${file_idx}"
-		handler_name := "file_select_${file_idx}"
-		handlers[handler_name] = fn [mut state, file_idx, file_name, node_tag] (mut e reactive.UiEvent) {
+		mut padding_left := 2 + entry.padding * 2
+		if padding_left < 2 {
+			padding_left = 2
+		}
+		mut label := escape_text(entry.name)
+		if entry.typ == 'folder' {
+			mut symbol := '[+]'
+			if entry.is_open {
+				symbol = '[-]'
+			}
+			label = '${symbol} ${label}'
+		}
+		mut fg := '#d0d0d0'
+		mut bg := '#1f2736'
+		if entry.typ == 'file' && entry.full_path == state.selected_file {
+			fg = '#ffffff'
+			bg = '#2f3e5c'
+		}
+		node_tag := 'entry-${idx}'
+		entry_copy := entry
+		handler_name := 'file_select_${idx}'
+		handlers[handler_name] = fn [mut state, entry_copy, node_tag] (mut e reactive.UiEvent) {
 			if e.target_tag != node_tag {
 				return
 			}
-			state.selected_idx = file_idx
-			state.file_lines = read_file_preview(file_name)
+			if isnil(state.tree) {
+				return
+			}
+			if entry_copy.typ == 'folder' {
+				state.tree.toggle(entry_copy.full_path)
+				refresh_file_entries(mut state)
+			} else {
+				state.selected_file = entry_copy.full_path
+				state.file_lines = read_file_preview(entry_copy.full_path)
+			}
 		}
-		b.write_string("\n\t\t\t<text tag=\"${node_tag}\" onclick={" + handler_name + "} style=\"top:${line_top};left:2;width:${entry_width};height:1;fg:${fg};bg:${bg}\">")
-	b.write_string(title)
-	b.write_string("</text>")
+		b.write_string("\n\t\t\t<text tag=\"${node_tag}\" onclick={" + handler_name + "} style=\"top:${line_top};left:${padding_left};width:${entry_width};height:1;fg:${fg};bg:${bg}\">")
+		b.write_string(label)
+		b.write_string("</text>")
 		row++
 	}
-	if state.files.len == 0 {
+	if state.file_entries.len == 0 {
 		b.write_string("\n\t\t\t<text style=\"top:3;left:2;fg:#888888\">(no files)</text>")
 	}
 	return b.str()
@@ -143,7 +153,7 @@ fn truncate_line(line string, limit int) string {
 fn build_file_content_markup(state LayoutState, work_width int, main_height int) string {
 	mut b := strings.new_builder(256)
 	mut lines := state.file_lines.clone()
-	if state.selected_idx == -1 || lines.len == 0 {
+	if state.selected_file.len == 0 || lines.len == 0 {
 		lines = ["Click a file to preview its contents."]
 	}
 	mut max_lines := main_height - 2
@@ -164,6 +174,13 @@ fn build_file_content_markup(state LayoutState, work_width int, main_height int)
 		b.write_string("</text>")
 	}
 	return b.str()
+}
+
+fn refresh_file_entries(mut state LayoutState) {
+	if isnil(state.tree) {
+		return
+	}
+	state.file_entries = state.tree.flattened()
 }
 
 fn file_list_component(mut state LayoutState, left_width int, main_height int) reactive.VNode {
@@ -314,7 +331,8 @@ fn build_layout_view(mut state LayoutState) reactive.VNode {
 
 fn main() {
 	mut state := LayoutState{}
-	state.files = load_directory_listing()
+	state.tree = new_file_tree('.')
+	refresh_file_entries(mut state)
 	state.hover_tag = "none"
 	root := fn [mut state] () reactive.VNode {
 		return build_layout_view(mut state)
