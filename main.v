@@ -8,6 +8,13 @@ fn root_view() reactive.VNode {
 			width:  0 // fill viewport
 			height: 0
 		}
+		events:   [
+			reactive.on('ctrl-c', fn (mut e reactive.UiEvent) {
+				e.propagate = true
+				println('Ctrl-C exit called')
+				exit(0)
+			}),
+		]
 		children: [
 			reactive.border_box(reactive.NodeSpec{
 				props:    reactive.TermProps{
@@ -16,6 +23,13 @@ fn root_view() reactive.VNode {
 					width:  40
 					height: 7
 				}
+				events:   [
+					reactive.on('click', fn (mut e reactive.UiEvent) {
+						e.propagate = true
+						println('Ctrl-C exit called')
+						exit(0)
+					}),
+				]
 				children: [
 					reactive.hline(reactive.NodeSpec{
 						props: reactive.TermProps{
@@ -45,6 +59,6 @@ fn root_view() reactive.VNode {
 }
 
 fn main() {
-	mut app := reactive.Reactive(root_view)
+	mut app := reactive.reactive_app(root_view)
 	app.run()!
 }

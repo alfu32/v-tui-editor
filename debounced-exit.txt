@@ -1,0 +1,918 @@
+event key_down reactive.KeyState{
+    code: 99
+    char: 3
+    ctrl: true
+    alt: false
+    shift: false
+    meta: false
+}  reactive.MouseState{
+    x: 0
+    y: 0
+    buttons: reactive.MouseButtons{
+        left: false
+        right: false
+        middle: false
+    }
+    wheel: 0
+}
+handle key event key_down
+handling key event key_down
+handling key event focus path []
+handling key event no target ?!
+event key_down reactive.KeyState{
+    code: 99
+    char: 3
+    ctrl: true
+    alt: false
+    shift: false
+    meta: false
+}  reactive.MouseState{
+    x: 0
+    y: 0
+    buttons: reactive.MouseButtons{
+        left: false
+        right: false
+        middle: false
+    }
+    wheel: 0
+}
+handle key event key_down
+handling key event key_down
+handling key event focus path []
+handling key event no target ?!
+event key_down reactive.KeyState{
+    code: 99
+    char: 3
+    ctrl: true
+    alt: false
+    shift: false
+    meta: false
+}  reactive.MouseState{
+    x: 0
+    y: 0
+    buttons: reactive.MouseButtons{
+        left: false
+        right: false
+        middle: false
+    }
+    wheel: 0
+}
+handle key event key_down
+handling key event key_down
+handling key event focus path []
+handling key event no target ?!
+event key_down reactive.KeyState{
+    code: 99
+    char: 3
+    ctrl: true
+    alt: false
+    shift: false
+    meta: false
+}  reactive.MouseState{
+    x: 0
+    y: 0
+    buttons: reactive.MouseButtons{
+        left: false
+        right: false
+        middle: false
+    }
+    wheel: 0
+}
+handle key event key_down
+handling key event key_down
+handling key event focus path []
+handling key event no target ?!
+event key_down reactive.KeyState{
+    code: 99
+    char: 3
+    ctrl: true
+    alt: false
+    shift: false
+    meta: false
+}  reactive.MouseState{
+    x: 0
+    y: 0
+    buttons: reactive.MouseButtons{
+        left: false
+        right: false
+        middle: false
+    }
+    wheel: 0
+}
+handle key event key_down
+handling key event key_down
+handling key event focus path []
+handling key event no target ?!
+event key_down reactive.KeyState{
+    code: 99
+    char: 3
+    ctrl: true
+    alt: false
+    shift: false
+    meta: false
+}  reactive.MouseState{
+    x: 0
+    y: 0
+    buttons: reactive.MouseButtons{
+        left: false
+        right: false
+        middle: false
+    }
+    wheel: 0
+}
+handle key event key_down
+handling key event key_down
+handling key event focus path []
+handling key event no target ?!
+event key_down reactive.KeyState{
+    code: 99
+    char: 3
+    ctrl: true
+    alt: false
+    shift: false
+    meta: false
+}  reactive.MouseState{
+    x: 0
+    y: 0
+    buttons: reactive.MouseButtons{
+        left: false
+        right: false
+        middle: false
+    }
+    wheel: 0
+}
+handle key event key_down
+handling key event key_down
+handling key event focus path []
+handling key event no target ?!
+event mouse_down reactive.KeyState{
+    code: 0
+    char: 0
+    ctrl: true
+    alt: false
+    shift: false
+    meta: false
+}  reactive.MouseState{
+    x: 40
+    y: 10
+    buttons: reactive.MouseButtons{
+        left: true
+        right: false
+        middle: false
+    }
+    wheel: 0
+}
+mouse button event reactive.MouseState{
+    x: 40
+    y: 10
+    buttons: reactive.MouseButtons{
+        left: true
+        right: false
+        middle: false
+    }
+    wheel: 0
+}
+handle mouse event mouse_down
+event mouse_up reactive.KeyState{
+    code: 0
+    char: 0
+    ctrl: true
+    alt: false
+    shift: false
+    meta: false
+}  reactive.MouseState{
+    x: 40
+    y: 10
+    buttons: reactive.MouseButtons{
+        left: true
+        right: false
+        middle: false
+    }
+    wheel: 0
+}
+mouse button event reactive.MouseState{
+    x: 40
+    y: 10
+    buttons: reactive.MouseButtons{
+        left: true
+        right: false
+        middle: false
+    }
+    wheel: 0
+}
+handle mouse event mouse_up
+event key_down reactive.KeyState{
+    code: 99
+    char: 3
+    ctrl: true
+    alt: false
+    shift: false
+    meta: false
+}  reactive.MouseState{
+    x: 0
+    y: 0
+    buttons: reactive.MouseButtons{
+        left: false
+        right: false
+        middle: false
+    }
+    wheel: 0
+}
+handle key event key_down
+handling key event key_down
+handling key event focus path [0, 1]
+handling key event proceeding
+dispatching key event reactive.UiEvent{
+    kind: key_down
+    target: 1
+    path: [0, 1]
+    key: reactive.KeyState{
+        code: 99
+        char: 3
+        ctrl: true
+        alt: false
+        shift: false
+        meta: false
+    }
+    mouse: reactive.MouseState{
+        x: 0
+        y: 0
+        buttons: reactive.MouseButtons{
+            left: false
+            right: false
+            middle: false
+        }
+        wheel: 0
+    }
+    term_width: 135
+    term_height: 30
+    propagate: true
+}
+event key_down reactive.KeyState{
+    code: 99
+    char: 3
+    ctrl: true
+    alt: false
+    shift: false
+    meta: false
+}  reactive.MouseState{
+    x: 0
+    y: 0
+    buttons: reactive.MouseButtons{
+        left: false
+        right: false
+        middle: false
+    }
+    wheel: 0
+}
+handle key event key_down
+handling key event key_down
+handling key event focus path [0, 1]
+handling key event proceeding
+dispatching key event reactive.UiEvent{
+    kind: key_down
+    target: 1
+    path: [0, 1]
+    key: reactive.KeyState{
+        code: 99
+        char: 3
+        ctrl: true
+        alt: false
+        shift: false
+        meta: false
+    }
+    mouse: reactive.MouseState{
+        x: 0
+        y: 0
+        buttons: reactive.MouseButtons{
+            left: false
+            right: false
+            middle: false
+        }
+        wheel: 0
+    }
+    term_width: 135
+    term_height: 30
+    propagate: true
+}
+event key_down reactive.KeyState{
+    code: 99
+    char: 3
+    ctrl: true
+    alt: false
+    shift: false
+    meta: false
+}  reactive.MouseState{
+    x: 0
+    y: 0
+    buttons: reactive.MouseButtons{
+        left: false
+        right: false
+        middle: false
+    }
+    wheel: 0
+}
+handle key event key_down
+handling key event key_down
+handling key event focus path [0, 1]
+handling key event proceeding
+dispatching key event reactive.UiEvent{
+    kind: key_down
+    target: 1
+    path: [0, 1]
+    key: reactive.KeyState{
+        code: 99
+        char: 3
+        ctrl: true
+        alt: false
+        shift: false
+        meta: false
+    }
+    mouse: reactive.MouseState{
+        x: 0
+        y: 0
+        buttons: reactive.MouseButtons{
+            left: false
+            right: false
+            middle: false
+        }
+        wheel: 0
+    }
+    term_width: 135
+    term_height: 30
+    propagate: true
+}
+event key_down reactive.KeyState{
+    code: 99
+    char: 3
+    ctrl: true
+    alt: false
+    shift: false
+    meta: false
+}  reactive.MouseState{
+    x: 0
+    y: 0
+    buttons: reactive.MouseButtons{
+        left: false
+        right: false
+        middle: false
+    }
+    wheel: 0
+}
+handle key event key_down
+handling key event key_down
+handling key event focus path [0, 1]
+handling key event proceeding
+dispatching key event reactive.UiEvent{
+    kind: key_down
+    target: 1
+    path: [0, 1]
+    key: reactive.KeyState{
+        code: 99
+        char: 3
+        ctrl: true
+        alt: false
+        shift: false
+        meta: false
+    }
+    mouse: reactive.MouseState{
+        x: 0
+        y: 0
+        buttons: reactive.MouseButtons{
+            left: false
+            right: false
+            middle: false
+        }
+        wheel: 0
+    }
+    term_width: 135
+    term_height: 30
+    propagate: true
+}
+event key_down reactive.KeyState{
+    code: 99
+    char: 3
+    ctrl: true
+    alt: false
+    shift: false
+    meta: false
+}  reactive.MouseState{
+    x: 0
+    y: 0
+    buttons: reactive.MouseButtons{
+        left: false
+        right: false
+        middle: false
+    }
+    wheel: 0
+}
+handle key event key_down
+handling key event key_down
+handling key event focus path [0, 1]
+handling key event proceeding
+dispatching key event reactive.UiEvent{
+    kind: key_down
+    target: 1
+    path: [0, 1]
+    key: reactive.KeyState{
+        code: 99
+        char: 3
+        ctrl: true
+        alt: false
+        shift: false
+        meta: false
+    }
+    mouse: reactive.MouseState{
+        x: 0
+        y: 0
+        buttons: reactive.MouseButtons{
+            left: false
+            right: false
+            middle: false
+        }
+        wheel: 0
+    }
+    term_width: 135
+    term_height: 30
+    propagate: true
+}
+event key_down reactive.KeyState{
+    code: 99
+    char: 3
+    ctrl: true
+    alt: false
+    shift: false
+    meta: false
+}  reactive.MouseState{
+    x: 0
+    y: 0
+    buttons: reactive.MouseButtons{
+        left: false
+        right: false
+        middle: false
+    }
+    wheel: 0
+}
+handle key event key_down
+handling key event key_down
+handling key event focus path [0, 1]
+handling key event proceeding
+dispatching key event reactive.UiEvent{
+    kind: key_down
+    target: 1
+    path: [0, 1]
+    key: reactive.KeyState{
+        code: 99
+        char: 3
+        ctrl: true
+        alt: false
+        shift: false
+        meta: false
+    }
+    mouse: reactive.MouseState{
+        x: 0
+        y: 0
+        buttons: reactive.MouseButtons{
+            left: false
+            right: false
+            middle: false
+        }
+        wheel: 0
+    }
+    term_width: 135
+    term_height: 30
+    propagate: true
+}
+event key_down reactive.KeyState{
+    code: 99
+    char: 3
+    ctrl: true
+    alt: false
+    shift: false
+    meta: false
+}  reactive.MouseState{
+    x: 0
+    y: 0
+    buttons: reactive.MouseButtons{
+        left: false
+        right: false
+        middle: false
+    }
+    wheel: 0
+}
+handle key event key_down
+handling key event key_down
+handling key event focus path [0, 1]
+handling key event proceeding
+dispatching key event reactive.UiEvent{
+    kind: key_down
+    target: 1
+    path: [0, 1]
+    key: reactive.KeyState{
+        code: 99
+        char: 3
+        ctrl: true
+        alt: false
+        shift: false
+        meta: false
+    }
+    mouse: reactive.MouseState{
+        x: 0
+        y: 0
+        buttons: reactive.MouseButtons{
+            left: false
+            right: false
+            middle: false
+        }
+        wheel: 0
+    }
+    term_width: 135
+    term_height: 30
+    propagate: true
+}
+event key_down reactive.KeyState{
+    code: 99
+    char: 3
+    ctrl: true
+    alt: false
+    shift: false
+    meta: false
+}  reactive.MouseState{
+    x: 0
+    y: 0
+    buttons: reactive.MouseButtons{
+        left: false
+        right: false
+        middle: false
+    }
+    wheel: 0
+}
+handle key event key_down
+handling key event key_down
+handling key event focus path [0, 1]
+handling key event proceeding
+dispatching key event reactive.UiEvent{
+    kind: key_down
+    target: 1
+    path: [0, 1]
+    key: reactive.KeyState{
+        code: 99
+        char: 3
+        ctrl: true
+        alt: false
+        shift: false
+        meta: false
+    }
+    mouse: reactive.MouseState{
+        x: 0
+        y: 0
+        buttons: reactive.MouseButtons{
+            left: false
+            right: false
+            middle: false
+        }
+        wheel: 0
+    }
+    term_width: 135
+    term_height: 30
+    propagate: true
+}
+event mouse_down reactive.KeyState{
+    code: 0
+    char: 0
+    ctrl: true
+    alt: false
+    shift: false
+    meta: false
+}  reactive.MouseState{
+    x: 40
+    y: 10
+    buttons: reactive.MouseButtons{
+        left: true
+        right: false
+        middle: false
+    }
+    wheel: 0
+}
+mouse button event reactive.MouseState{
+    x: 40
+    y: 10
+    buttons: reactive.MouseButtons{
+        left: true
+        right: false
+        middle: false
+    }
+    wheel: 0
+}
+handle mouse event mouse_down
+event mouse_up reactive.KeyState{
+    code: 0
+    char: 0
+    ctrl: true
+    alt: false
+    shift: false
+    meta: false
+}  reactive.MouseState{
+    x: 40
+    y: 10
+    buttons: reactive.MouseButtons{
+        left: true
+        right: false
+        middle: false
+    }
+    wheel: 0
+}
+mouse button event reactive.MouseState{
+    x: 40
+    y: 10
+    buttons: reactive.MouseButtons{
+        left: true
+        right: false
+        middle: false
+    }
+    wheel: 0
+}
+handle mouse event mouse_up
+event key_down reactive.KeyState{
+    code: 99
+    char: 3
+    ctrl: true
+    alt: false
+    shift: false
+    meta: false
+}  reactive.MouseState{
+    x: 0
+    y: 0
+    buttons: reactive.MouseButtons{
+        left: false
+        right: false
+        middle: false
+    }
+    wheel: 0
+}
+handle key event key_down
+handling key event key_down
+handling key event focus path [0, 1]
+handling key event proceeding
+dispatching key event reactive.UiEvent{
+    kind: key_down
+    target: 1
+    path: [0, 1]
+    key: reactive.KeyState{
+        code: 99
+        char: 3
+        ctrl: true
+        alt: false
+        shift: false
+        meta: false
+    }
+    mouse: reactive.MouseState{
+        x: 0
+        y: 0
+        buttons: reactive.MouseButtons{
+            left: false
+            right: false
+            middle: false
+        }
+        wheel: 0
+    }
+    term_width: 135
+    term_height: 30
+    propagate: true
+}
+event key_down reactive.KeyState{
+    code: 99
+    char: 3
+    ctrl: true
+    alt: false
+    shift: false
+    meta: false
+}  reactive.MouseState{
+    x: 0
+    y: 0
+    buttons: reactive.MouseButtons{
+        left: false
+        right: false
+        middle: false
+    }
+    wheel: 0
+}
+handle key event key_down
+handling key event key_down
+handling key event focus path [0, 1]
+handling key event proceeding
+dispatching key event reactive.UiEvent{
+    kind: key_down
+    target: 1
+    path: [0, 1]
+    key: reactive.KeyState{
+        code: 99
+        char: 3
+        ctrl: true
+        alt: false
+        shift: false
+        meta: false
+    }
+    mouse: reactive.MouseState{
+        x: 0
+        y: 0
+        buttons: reactive.MouseButtons{
+            left: false
+            right: false
+            middle: false
+        }
+        wheel: 0
+    }
+    term_width: 135
+    term_height: 30
+    propagate: true
+}
+event key_down reactive.KeyState{
+    code: 99
+    char: 3
+    ctrl: true
+    alt: false
+    shift: false
+    meta: false
+}  reactive.MouseState{
+    x: 0
+    y: 0
+    buttons: reactive.MouseButtons{
+        left: false
+        right: false
+        middle: false
+    }
+    wheel: 0
+}
+handle key event key_down
+handling key event key_down
+handling key event focus path [0, 1]
+handling key event proceeding
+dispatching key event reactive.UiEvent{
+    kind: key_down
+    target: 1
+    path: [0, 1]
+    key: reactive.KeyState{
+        code: 99
+        char: 3
+        ctrl: true
+        alt: false
+        shift: false
+        meta: false
+    }
+    mouse: reactive.MouseState{
+        x: 0
+        y: 0
+        buttons: reactive.MouseButtons{
+            left: false
+            right: false
+            middle: false
+        }
+        wheel: 0
+    }
+    term_width: 135
+    term_height: 30
+    propagate: true
+}
+event key_down reactive.KeyState{
+    code: 99
+    char: 3
+    ctrl: true
+    alt: false
+    shift: false
+    meta: false
+}  reactive.MouseState{
+    x: 0
+    y: 0
+    buttons: reactive.MouseButtons{
+        left: false
+        right: false
+        middle: false
+    }
+    wheel: 0
+}
+handle key event key_down
+handling key event key_down
+handling key event focus path [0, 1]
+handling key event proceeding
+dispatching key event reactive.UiEvent{
+    kind: key_down
+    target: 1
+    path: [0, 1]
+    key: reactive.KeyState{
+        code: 99
+        char: 3
+        ctrl: true
+        alt: false
+        shift: false
+        meta: false
+    }
+    mouse: reactive.MouseState{
+        x: 0
+        y: 0
+        buttons: reactive.MouseButtons{
+            left: false
+            right: false
+            middle: false
+        }
+        wheel: 0
+    }
+    term_width: 135
+    term_height: 30
+    propagate: true
+}
+event key_down reactive.KeyState{
+    code: 99
+    char: 3
+    ctrl: true
+    alt: false
+    shift: false
+    meta: false
+}  reactive.MouseState{
+    x: 0
+    y: 0
+    buttons: reactive.MouseButtons{
+        left: false
+        right: false
+        middle: false
+    }
+    wheel: 0
+}
+handle key event key_down
+handling key event key_down
+handling key event focus path [0, 1]
+handling key event proceeding
+dispatching key event reactive.UiEvent{
+    kind: key_down
+    target: 1
+    path: [0, 1]
+    key: reactive.KeyState{
+        code: 99
+        char: 3
+        ctrl: true
+        alt: false
+        shift: false
+        meta: false
+    }
+    mouse: reactive.MouseState{
+        x: 0
+        y: 0
+        buttons: reactive.MouseButtons{
+            left: false
+            right: false
+            middle: false
+        }
+        wheel: 0
+    }
+    term_width: 135
+    term_height: 30
+    propagate: true
+}
+event key_down reactive.KeyState{
+    code: 99
+    char: 3
+    ctrl: true
+    alt: false
+    shift: false
+    meta: false
+}  reactive.MouseState{
+    x: 0
+    y: 0
+    buttons: reactive.MouseButtons{
+        left: false
+        right: false
+        middle: false
+    }
+    wheel: 0
+}
+handle key event key_down
+handling key event key_down
+handling key event focus path [0, 1]
+handling key event proceeding
+dispatching key event reactive.UiEvent{
+    kind: key_down
+    target: 1
+    path: [0, 1]
+    key: reactive.KeyState{
+        code: 99
+        char: 3
+        ctrl: true
+        alt: false
+        shift: false
+        meta: false
+    }
+    mouse: reactive.MouseState{
+        x: 0
+        y: 0
+        buttons: reactive.MouseButtons{
+            left: false
+            right: false
+            middle: false
+        }
+        wheel: 0
+    }
+    term_width: 135
+    term_height: 30
+    propagate: true
+}
+intent to exit after 300 frames

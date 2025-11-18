@@ -183,11 +183,7 @@ fn render_horizontal(node VNode, origin_x int, origin_y int, mut ctx RenderConte
 	}
 
 	// If you want horizontal container itself to receive events, register it:
-	if node.events.click != none || node.events.mouse_move != none || node.events.mouse_down != none
-		|| node.events.mouse_up != none || node.events.key_down != none
-		|| node.events.key_up != none || node.events.focus != none || node.events.blur != none {
-		_ = ctx.register(combined, node.style, node.events)
-	}
+	_ = ctx.register(combined, node.style, node.events)
 
 	return combined
 }
@@ -218,12 +214,7 @@ fn render_vertical(node VNode, origin_x int, origin_y int, mut ctx RenderContext
 		combined = union_rect(combined, child_rect)
 		y = child_rect.y + child_rect.height
 	}
-
-	if node.events.click != none || node.events.mouse_move != none || node.events.mouse_down != none
-		|| node.events.mouse_up != none || node.events.key_down != none
-		|| node.events.key_up != none || node.events.focus != none || node.events.blur != none {
-		_ = ctx.register(combined, node.style, node.events)
-	}
+	_ = ctx.register(combined, node.style, node.events)
 
 	return combined
 }
