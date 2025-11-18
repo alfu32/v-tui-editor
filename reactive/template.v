@@ -11,6 +11,7 @@ pub:
 	props    map[string]string     = map[string]string{}
 	handlers map[string]UiEventHandler = map[string]UiEventHandler{}
 	children []VNode               = []VNode{}
+	named_children map[string][]VNode = map[string][]VNode{}
 }
 
 // Template parser -----------------------------------------------------------
@@ -238,12 +239,14 @@ const event_name_map = {
 }
 
 
+const text_literal_constructor = '__text_literal__'
+
 pub fn view_from_template(src string, ctx TemplateContext) !VNode {
 	mut parser := new_template_parser(src)
 	mut nodes := parser.parse_all()!
 	mut built := []VNode{}
 	for node in nodes {
-		built << build_template_node(node, ctx, none)!
+		built << build_template_node(node, ctx, none, '')!
 	}
 	mut flattened := []VNode{}
 	for node in built {
@@ -260,21 +263,23 @@ pub fn view_from_template(src string, ctx TemplateContext) !VNode {
 }
 
 
-fn build_template_node(node TemplateNode, ctx TemplateContext, parent_style ?TermStyleSpec) !VNode {
+fn build_template_node(node TemplateNode, ctx TemplateContext, parent_style ?TermStyleSpec, parent_tag string) !VNode {
 	if node.is_text {
 		text_value := interpolate_text(node.text, ctx.props).trim_space()
 		if text_value.len == 0 {
 			return empty_vnode()
 		}
-		mut style := parent_style or { default_box_style() }
-		return text(NodeSpec{
-			tag:      'text-node'
-			props:    TermProps{text: text_value}
-			style:    style
-			children: []VNode{}
-		})
+		return text_literal_node(text_value)
 	}
 	if node.name == 'slot' {
+		name := node.attrs['name'] or { '' }
+		if name.len > 0 {
+			slot_children := ctx.named_children[name] or { []VNode{} }
+			if slot_children.len == 0 {
+				return empty_vnode()
+			}
+			return wrap_children(slot_children.clone())
+		}
 		if ctx.children.len == 0 {
 			return empty_vnode()
 		}
@@ -288,13 +293,21 @@ fn build_template_node(node TemplateNode, ctx TemplateContext, parent_style ?Ter
 	mut style_spec := merge_style_spec(style_map, parent_style)
 	mut events := parse_events_from_attributes(node, ctx)
 	mut children := []VNode{}
+	mut literal_text := ''
 	for child in node.children {
-		child_node := build_template_node(child, ctx, style_spec)!
+		child_node := build_template_node(child, ctx, style_spec, node.name)!
 		if child_node.constructor == '__empty__' {
 			children << child_node.children
 			continue
 		}
+		if child_node.constructor == text_literal_constructor {
+			literal_text += child_node.props.text
+			continue
+		}
 		children << child_node
+	}
+	if node.name == 'text' && literal_text.len > 0 && props.text.len == 0 {
+		props.text = literal_text
 	}
 	return factory(NodeSpec{
 		tag:      node.attrs['id'] or { node.attrs['tag'] or { node.name } }
@@ -316,6 +329,15 @@ fn wrap_children(children []VNode) VNode {
 	return VNode{
 		constructor: '__empty__'
 		children: children
+	}
+}
+
+fn text_literal_node(content string) VNode {
+	return VNode{
+		constructor: text_literal_constructor
+		props: TermProps{
+			text: content
+		}
 	}
 }
 

@@ -110,12 +110,12 @@ fn build_file_list_markup(mut state LayoutState, left_width int, main_height int
 		bg := if idx == state.selected_idx { "#2f3e5c" } else { "#1f2736" }
 		file_idx := idx
 		file_name := name
-	handler_name := "file_select_${file_idx}"
-	handlers[handler_name] = fn [mut state, file_idx, file_name] (mut _ reactive.UiEvent) {
-		state.selected_idx = file_idx
-		state.file_lines = read_file_preview(file_name)
-	}
-	b.write_string("\n\t\t\t<text tag=\"file-${idx}\" onclick={" + handler_name + "} style=\"top:${line_top};left:2;width:${entry_width};height:1;fg:${fg};bg:${bg}\">")
+		handler_name := "file_select_${file_idx}"
+		handlers[handler_name] = fn [mut state, file_idx, file_name] (mut _ reactive.UiEvent) {
+			state.selected_idx = file_idx
+			state.file_lines = read_file_preview(file_name)
+		}
+		b.write_string("\n\t\t\t<text tag=\"file-${idx}\" onclick={" + handler_name + "} style=\"top:${line_top};left:2;width:${entry_width};height:1;fg:${fg};bg:${bg}\">")
 	b.write_string(title)
 	b.write_string("</text>")
 		row++
@@ -141,7 +141,7 @@ fn build_file_content_markup(state LayoutState, work_width int, main_height int)
 	mut lines := state.file_lines.clone()
 	if state.selected_idx == -1 || lines.len == 0 {
 		lines = ["Click a file to preview its contents."]
-}
+	}
 	mut max_lines := main_height - 2
 	if max_lines < 1 {
 		max_lines = 1
@@ -162,6 +162,53 @@ fn build_file_content_markup(state LayoutState, work_width int, main_height int)
 	return b.str()
 }
 
+fn file_list_component(mut state LayoutState, left_width int, main_height int) reactive.VNode {
+	mut local_handlers := map[string]reactive.UiEventHandler{}
+	items_markup := build_file_list_markup(mut state, left_width, main_height, mut local_handlers)
+	template := r'
+<relative tag="file-list" style="width:{{width}};height:{{height}}">
+	<text style="top:1;left:2;fg:#9ddcff">Explorer</text>
+	@@ITEMS@@
+</relative>
+'.trim_indent()
+	component_template := template.replace('@@ITEMS@@', items_markup)
+	ctx := reactive.TemplateContext{
+		props: {
+			'width': itos(left_width)
+			'height': itos(main_height)
+		}
+		handlers: local_handlers
+	}
+	return reactive.view_from_template(component_template, ctx) or {
+		reactive.text(reactive.NodeSpec{
+			tag: 'file-list-error'
+			props: reactive.TermProps{ text: 'file list error: ' + err.msg() }
+		})
+	}
+}
+
+fn file_content_component(state LayoutState, work_width int, main_height int) reactive.VNode {
+	lines_markup := build_file_content_markup(state, work_width, main_height)
+	template := r'
+<relative tag="file-content" style="width:{{width}};height:{{height}}">
+	@@LINES@@
+</relative>
+'.trim_indent()
+	component_template := template.replace('@@LINES@@', lines_markup)
+	ctx := reactive.TemplateContext{
+		props: {
+			'width': itos(work_width)
+			'height': itos(main_height)
+		}
+	}
+	return reactive.view_from_template(component_template, ctx) or {
+		reactive.text(reactive.NodeSpec{
+			tag: 'file-content-error'
+			props: reactive.TermProps{ text: 'file content error: ' + err.msg() }
+		})
+	}
+}
+
 const layout_template = r'
 <relative tag="root" style="width:{{viewport_width}};height:{{viewport_height}};bg:#181c20" onmousemove={resize_tracker} onmouseup={stop_resize}>
 	<rect tag="top-bar" style="width:{{viewport_width}};height:{{top_bar_height}};bg:#2b344d">
@@ -172,15 +219,12 @@ const layout_template = r'
 	</rect>
 	<relative tag="main" style="top:{{main_top}};width:{{viewport_width}};height:{{main_height}}">
 		<rect tag="left-panel" style="width:{{left_width}};height:{{main_height}};bg:#1f2736;fg:#f0f0f0">
-			<text style="top:1;left:2;fg:#9ddcff">Explorer</text>
-			@@FILE_LIST@@
+			<slot name="left_panel"/>
 		</rect>
 		<rect tag="divider" style="left:{{divider_left}};width:{{divider_width}};height:{{main_height}};bg:#888a90" onmousedown={start_resize} onmousemove={resize_tracker} onmouseup={stop_resize} />
-		<relative tag="work" style="left:{{work_left}};width:{{work_width}};height:{{main_height}};bg:#10141c">
-			<rect tag="work-surface" style="width:{{work_width}};height:{{main_height}};bg:#101820">
-				@@FILE_CONTENT@@
-			</rect>
-		</relative>
+		<rect tag="work" style="left:{{work_left}};width:{{work_width}};height:{{main_height}};bg:#101820">
+			<slot name="work_panel"/>
+		</rect>
 	</relative>
 </relative>
 '.trim_indent()
@@ -222,34 +266,34 @@ fn build_layout_view(mut state LayoutState) reactive.VNode {
 	status_line := "Panel ${left_width}px | Editor ${work_width}px | Mouse ${state.mouse_x},${state.mouse_y} | Hover ${status_hover}"
 	props["status_text"] = escape_text(status_line)
 	mut handlers := map[string]reactive.UiEventHandler{}
-	handlers["start_resize"] = fn [mut state] (mut e reactive.UiEvent) {
+	handlers['start_resize'] = fn [mut state] (mut e reactive.UiEvent) {
 		track_pointer(mut state, mut e)
+		if e.target_tag != 'divider' {
+			return
+		}
 		state.resizing = true
 		update_resize(mut state, mut e, true)
 	}
-	handlers["resize_tracker"] = fn [mut state] (mut e reactive.UiEvent) {
+	handlers['resize_tracker'] = fn [mut state] (mut e reactive.UiEvent) {
 		track_pointer(mut state, mut e)
 		update_resize(mut state, mut e, false)
 	}
-	handlers["stop_resize"] = fn [mut state] (mut e reactive.UiEvent) {
+	handlers['stop_resize'] = fn [mut state] (mut e reactive.UiEvent) {
 		track_pointer(mut state, mut e)
 		state.resizing = false
 		update_resize(mut state, mut e, true)
 	}
-	mut template_str := layout_template
-	mut file_handlers := map[string]reactive.UiEventHandler{}
-	file_list_markup := build_file_list_markup(mut state, left_width, main_height, mut file_handlers)
-	for name, handler in file_handlers {
-		handlers[name] = handler
-	}
-	file_content_markup := build_file_content_markup(state, work_width, main_height)
-	template_str = template_str.replace("@@FILE_LIST@@", file_list_markup)
-	template_str = template_str.replace("@@FILE_CONTENT@@", file_content_markup)
+	left_panel_view := file_list_component(mut state, left_width, main_height)
+	work_panel_view := file_content_component(state, work_width, main_height)
+	mut named_children := map[string][]reactive.VNode{}
+	named_children['left_panel'] = [left_panel_view]
+	named_children['work_panel'] = [work_panel_view]
 	ctx := reactive.TemplateContext{
 		props: props
 		handlers: handlers
+		named_children: named_children
 	}
-	return reactive.view_from_template(template_str, ctx) or {
+	return reactive.view_from_template(layout_template, ctx) or {
 		reactive.relative(reactive.NodeSpec{
 			tag: "error"
 			props: reactive.TermProps{ width: viewport_width, height: viewport_height }
