@@ -1,4 +1,6 @@
+import os
 import reactive
+import strings
 
 const top_bar_height = 3
 const status_bar_height = 2
@@ -6,8 +8,17 @@ const divider_width = 1
 const min_left_width = 12
 const min_right_width = 20
 
+fn escape_text(value string) string {
+	return value
+		.replace("&", "&amp;")
+		.replace("<", "&lt;")
+		.replace(">", "&gt;")
+		.replace("\"", "&quot;")
+		.replace("'", "&#39;")
+}
+
 fn itos(value int) string {
-	return '${value}'
+	return "${value}"
 }
 
 struct LayoutState {
@@ -16,6 +27,12 @@ mut:
 	resizing         bool
 	viewport_width   int = 80
 	viewport_height  int = 24
+	files            []string
+	selected_idx     int = -1
+	file_lines       []string
+	mouse_x          int
+	mouse_y          int
+	hover_tag        string
 }
 
 fn clamp_left_width(width int, viewport_width int) int {
@@ -43,28 +60,125 @@ fn update_resize(mut state LayoutState, mut e reactive.UiEvent, force bool) {
 	state.left_panel_width = clamp_left_width(e.mouse.x, state.viewport_width)
 }
 
+fn track_pointer(mut state LayoutState, mut e reactive.UiEvent) {
+	state.mouse_x = e.mouse.x
+	state.mouse_y = e.mouse.y
+	if e.target_tag.len > 0 {
+		state.hover_tag = e.target_tag
+	}
+}
+
+fn load_directory_listing() []string {
+	entries := os.ls('.') or { return []string{} }
+	mut files := []string{}
+	for name in entries {
+		if os.is_dir(name) {
+			continue
+		}
+		files << name
+	}
+	files.sort()
+	return files
+}
+
+fn read_file_preview(path string) []string {
+	content := os.read_bytes(path) or {
+		return ["Failed to open ${path}: ${err.msg()}"]
+	}
+	return (content.bytestr()).split_into_lines()
+}
+
+fn build_file_list_markup(mut state LayoutState, left_width int, main_height int, mut handlers map[string]reactive.UiEventHandler) string {
+	mut b := strings.new_builder(256)
+	mut available := main_height - 3
+	if available < 1 {
+		available = 1
+	}
+	row_height := 1
+	mut row := 0
+	for idx, name in state.files {
+		if row >= available {
+			break
+		}
+		line_top := 3 + row*row_height
+		mut entry_width := if left_width > 4 { left_width - 4 } else { left_width }
+		if entry_width < 1 {
+			entry_width = 1
+		}
+		title := escape_text(name)
+		fg := if idx == state.selected_idx { "#ffffff" } else { "#d0d0d0" }
+		bg := if idx == state.selected_idx { "#2f3e5c" } else { "#1f2736" }
+		file_idx := idx
+		file_name := name
+	handler_name := "file_select_${file_idx}"
+	handlers[handler_name] = fn [mut state, file_idx, file_name] (mut _ reactive.UiEvent) {
+		state.selected_idx = file_idx
+		state.file_lines = read_file_preview(file_name)
+	}
+	b.write_string("\n\t\t\t<text tag=\"file-${idx}\" onclick={" + handler_name + "} style=\"top:${line_top};left:2;width:${entry_width};height:1;fg:${fg};bg:${bg}\">")
+	b.write_string(title)
+	b.write_string("</text>")
+		row++
+	}
+	if state.files.len == 0 {
+		b.write_string("\n\t\t\t<text style=\"top:3;left:2;fg:#888888\">(no files)</text>")
+	}
+	return b.str()
+}
+
+fn truncate_line(line string, limit int) string {
+	if limit <= 0 {
+		return ""
+	}
+	if line.len <= limit {
+		return line
+	}
+	return line[..limit]
+}
+
+fn build_file_content_markup(state LayoutState, work_width int, main_height int) string {
+	mut b := strings.new_builder(256)
+	mut lines := state.file_lines.clone()
+	if state.selected_idx == -1 || lines.len == 0 {
+		lines = ["Click a file to preview its contents."]
+}
+	mut max_lines := main_height - 2
+	if max_lines < 1 {
+		max_lines = 1
+	}
+	mut width_limit := work_width - 4
+	if width_limit < 1 {
+		width_limit = work_width
+	}
+	for i in 0 .. max_lines {
+		if i >= lines.len {
+			break
+		}
+		line := escape_text(truncate_line(lines[i], width_limit))
+		b.write_string("\n\t\t\t\t<text style=\"top:${i + 1};left:2;fg:#d0d0d0\">")
+		b.write_string(line)
+		b.write_string("</text>")
+	}
+	return b.str()
+}
+
 const layout_template = r'
-<relative tag="root" style="width:{{viewport_width}};height:{{viewport_height}};bg:#181c20" onmousemove={drag_resize} onmouseup={stop_resize}>
+<relative tag="root" style="width:{{viewport_width}};height:{{viewport_height}};bg:#181c20" onmousemove={resize_tracker} onmouseup={stop_resize}>
 	<rect tag="top-bar" style="width:{{viewport_width}};height:{{top_bar_height}};bg:#2b344d">
 		<text style="top:1;left:2;fg:#f0f0f0">V Reactive Workspace</text>
 	</rect>
 	<rect tag="status-bar" style="top:{{status_top}};width:{{viewport_width}};height:{{status_height}};bg:#222730">
-		<text style="top:1;left:2;fg:#c0c0c0">Panel {{left_width}}px | Editor {{work_width}}px | Drag divider to resize. Press Esc to exit.</text>
+		<text style="top:1;left:2;fg:#c0c0c0">{{status_text}}</text>
 	</rect>
 	<relative tag="main" style="top:{{main_top}};width:{{viewport_width}};height:{{main_height}}">
 		<rect tag="left-panel" style="width:{{left_width}};height:{{main_height}};bg:#1f2736;fg:#f0f0f0">
 			<text style="top:1;left:2;fg:#9ddcff">Explorer</text>
-			<text style="top:3;left:2;fg:#d0d0d0">- renderer.v</text>
-			<text style="top:4;left:2;fg:#d0d0d0">- template.v</text>
-			<text style="top:5;left:2;fg:#d0d0d0">- layout.templ</text>
+			@@FILE_LIST@@
 		</rect>
-		<rect tag="divider" style="left:{{divider_left}};width:{{divider_width}};height:{{main_height}};bg:#888a90" onmousedown={start_resize} onmousemove={drag_resize} onmouseup={stop_resize} />
+		<rect tag="divider" style="left:{{divider_left}};width:{{divider_width}};height:{{main_height}};bg:#888a90" onmousedown={start_resize} onmousemove={resize_tracker} onmouseup={stop_resize} />
 		<relative tag="work" style="left:{{work_left}};width:{{work_width}};height:{{main_height}};bg:#10141c">
 			<rect tag="work-surface" style="width:{{work_width}};height:{{main_height}};bg:#101820">
-				<text style="top:1;left:2;fg:#9cdcfe">fn render_workspace() &#123;</text>
-				<text style="top:2;left:4;fg:#dcdcaa">// Build layouts with &lt;relative&gt;, &lt;rect&gt; and &lt;text&gt;</text>
-				<text style="top:3;left:4;fg:#c586c0">resize_left_panel(mouse_drag)</text>
-				<text style="top:4;left:2;fg:#9cdcfe">&#125;</text>
+				@@FILE_CONTENT@@
 			</rect>
 		</relative>
 	</relative>
@@ -92,41 +206,56 @@ fn build_layout_view(mut state LayoutState) reactive.VNode {
 		work_width = min_right_width
 	}
 	mut props := map[string]string{}
-	props['viewport_width'] = itos(viewport_width)
-	props['viewport_height'] = itos(viewport_height)
-	props['top_bar_height'] = itos(top_bar_height)
-	props['status_height'] = itos(status_bar_height)
-	props['status_top'] = itos(status_top)
-	props['main_top'] = itos(top_bar_height)
-	props['main_height'] = itos(main_height)
-	props['left_width'] = itos(left_width)
-	props['divider_left'] = itos(left_width)
-	props['divider_width'] = itos(divider_width)
-	props['work_left'] = itos(work_left)
-	props['work_width'] = itos(work_width)
+	props["viewport_width"] = itos(viewport_width)
+	props["viewport_height"] = itos(viewport_height)
+	props["top_bar_height"] = itos(top_bar_height)
+	props["status_height"] = itos(status_bar_height)
+	props["status_top"] = itos(status_top)
+	props["main_top"] = itos(top_bar_height)
+	props["main_height"] = itos(main_height)
+	props["left_width"] = itos(left_width)
+	props["divider_left"] = itos(left_width)
+	props["divider_width"] = itos(divider_width)
+	props["work_left"] = itos(work_left)
+	props["work_width"] = itos(work_width)
+	status_hover := if state.hover_tag.len > 0 { state.hover_tag } else { "none" }
+	status_line := "Panel ${left_width}px | Editor ${work_width}px | Mouse ${state.mouse_x},${state.mouse_y} | Hover ${status_hover}"
+	props["status_text"] = escape_text(status_line)
 	mut handlers := map[string]reactive.UiEventHandler{}
-	handlers['start_resize'] = fn [mut state] (mut e reactive.UiEvent) {
+	handlers["start_resize"] = fn [mut state] (mut e reactive.UiEvent) {
+		track_pointer(mut state, mut e)
 		state.resizing = true
 		update_resize(mut state, mut e, true)
 	}
-	handlers['drag_resize'] = fn [mut state] (mut e reactive.UiEvent) {
+	handlers["resize_tracker"] = fn [mut state] (mut e reactive.UiEvent) {
+		track_pointer(mut state, mut e)
 		update_resize(mut state, mut e, false)
 	}
-	handlers['stop_resize'] = fn [mut state] (mut e reactive.UiEvent) {
+	handlers["stop_resize"] = fn [mut state] (mut e reactive.UiEvent) {
+		track_pointer(mut state, mut e)
 		state.resizing = false
 		update_resize(mut state, mut e, true)
 	}
+	mut template_str := layout_template
+	mut file_handlers := map[string]reactive.UiEventHandler{}
+	file_list_markup := build_file_list_markup(mut state, left_width, main_height, mut file_handlers)
+	for name, handler in file_handlers {
+		handlers[name] = handler
+	}
+	file_content_markup := build_file_content_markup(state, work_width, main_height)
+	template_str = template_str.replace("@@FILE_LIST@@", file_list_markup)
+	template_str = template_str.replace("@@FILE_CONTENT@@", file_content_markup)
 	ctx := reactive.TemplateContext{
 		props: props
 		handlers: handlers
 	}
-	return reactive.view_from_template(layout_template, ctx) or {
+	return reactive.view_from_template(template_str, ctx) or {
 		reactive.relative(reactive.NodeSpec{
-			tag: 'error'
+			tag: "error"
 			props: reactive.TermProps{ width: viewport_width, height: viewport_height }
 			children: [reactive.text(reactive.NodeSpec{
-				tag: 'error-text'
-				props: reactive.TermProps{ text: 'template error: ' + err.msg() }
+				tag: "error-text"
+				props: reactive.TermProps{ text: "template error: " + err.msg() }
 			})]
 		})
 	}
@@ -134,6 +263,8 @@ fn build_layout_view(mut state LayoutState) reactive.VNode {
 
 fn main() {
 	mut state := LayoutState{}
+	state.files = load_directory_listing()
+	state.hover_tag = "none"
 	root := fn [mut state] () reactive.VNode {
 		return build_layout_view(mut state)
 	}

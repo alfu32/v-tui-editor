@@ -268,12 +268,13 @@ pub mut:
 	key         KeyState
 	mouse       MouseState
 	renderer        Renderer
+	target_tag  string
 	propagate   bool = true
 }
 pub fn (ev UiEvent) str() string {
 	return "
 	UiEvent{
-	kind:${ev.kind}, target:${ev.target}, path:${ev.path},
+	kind:${ev.kind}, target:${ev.target}, target_tag:${ev.target_tag}, path:${ev.path},
 	key:${ev.key},
 	mouse:${ev.mouse},
 	renderer:[Circular], propagate:${ev.propagate} }
@@ -438,6 +439,7 @@ pub:
 	rect   TermRect
 	style  TermStyleSpec
 	events []UiEventHandler
+	tag    string
 }
 
 pub fn (node RenderedNode) dispatch_event(mut ev UiEvent) {
@@ -464,13 +466,14 @@ pub fn (mut ctx RenderContext) log(message string,file_file string) {
 }
 
 
-pub fn (mut ctx RenderContext) register(rect TermRect, style TermStyleSpec, events []UiEventHandler) int {
+pub fn (mut ctx RenderContext) register(rect TermRect, style TermStyleSpec, events []UiEventHandler, tag string) int {
 	id := ctx.nodes.len
 	ctx.nodes << RenderedNode{
 		id:     id
 		rect:   rect
 		style:  style
 		events: events
+		tag:    if tag.len > 0 { tag } else { "node-${id}" }
 	}
 	return id
 }
@@ -578,6 +581,7 @@ fn (mut r Renderer) render_frame() {
 		r.ctx.viewport,
 		default_box_style(),
 		root.events, // or root.style + handlers, depending on your RenderedNode
+		if root.tag.len > 0 { root.tag } else { "root" },
 	)
 	_ = root_id
 	r.ctx.log('registered root_id ${root_id}',@LOCATION)
@@ -611,6 +615,10 @@ fn (mut r Renderer) handle_mouse_event(kind UiEventKind) {
 	}
 	r.focus.path = path
 	target := path[path.len - 1]
+	mut target_tag := ''
+	if node := r.node_by_id(target) {
+		target_tag = node.tag
+	}
 
 	if kind == .mouse_down || kind == .click || kind == .mouse_move {
 		r.update_focus(path)
@@ -623,6 +631,7 @@ fn (mut r Renderer) handle_mouse_event(kind UiEventKind) {
 		key:         r.last_key
 		mouse:       r.last_mouse
 		renderer: 		 r
+		target_tag:  target_tag
 		propagate:   true
 	}
 	r.dispatch_event(mut ev, path)
@@ -637,6 +646,10 @@ fn (mut r Renderer) handle_key_event(kind UiEventKind) {
 	}
 	r.ctx.log('handling key event proceeding',@LOCATION)
 	target := r.focus.path[r.focus.path.len - 1]
+	mut target_tag := ''
+	if node := r.node_by_id(target) {
+		target_tag = node.tag
+	}
 
 	mut ev := UiEvent{
 		kind:        kind
@@ -645,6 +658,7 @@ fn (mut r Renderer) handle_key_event(kind UiEventKind) {
 		renderer:    r
 		key:         r.last_key
 		mouse:       r.last_mouse
+		target_tag:  target_tag
 		propagate:   true
 	}
 	r.ctx.log('dispatching key event ${ev}',@LOCATION)
@@ -706,6 +720,7 @@ fn (mut r Renderer) update_focus(new_path []int) {
 			key:         r.last_key
 			mouse:       r.last_mouse
 			renderer: r
+			target_tag:  node.tag
 			propagate:   true
 		}
 		node.dispatch_event(mut blur_event)
@@ -723,6 +738,7 @@ fn (mut r Renderer) update_focus(new_path []int) {
 			key:         r.last_key
 			mouse:       r.last_mouse
 			renderer: r
+			target_tag:  node.tag
 			propagate:   true
 		}
 		node.dispatch_event(mut focus_event)

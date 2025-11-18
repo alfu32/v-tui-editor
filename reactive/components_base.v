@@ -37,7 +37,7 @@ fn render_rect(mut node VNode, origin_x int, origin_y int, mut ctx RenderContext
 	if rect.height == 0 {
 		rect.height = ctx.viewport.height
 	}
-	_ = ctx.register(rect, node.style, node.events)
+	_ = ctx.register(rect, node.style, node.events, node.tag)
 
 	mut style := node.style.default
 	if rect.contains_point(x: ctx.mouse.x, y: ctx.mouse.y) {
@@ -48,7 +48,15 @@ fn render_rect(mut node VNode, origin_x int, origin_y int, mut ctx RenderContext
 	ctx.tui.draw_rect(rect.x, rect.y, rect.x + rect.width, rect.y + rect.height)
 	ctx.tui.reset()
 
-	return rect
+	saved_viewport := ctx.viewport
+	ctx.viewport = rect
+	mut combined := rect
+	for mut child in node.children {
+		child_rect := child.render(mut child, rect.x, rect.y, mut ctx)
+		combined = union_rect(combined, child_rect)
+	}
+	ctx.viewport = saved_viewport
+	return combined
 }
 
 pub fn rect(spec NodeSpec) VNode {
@@ -84,7 +92,7 @@ fn render_text(mut node VNode, origin_x int, origin_y int, mut ctx RenderContext
 		height: height
 	}
 
-	_ = ctx.register(rect, node.style, node.events)
+	_ = ctx.register(rect, node.style, node.events, node.tag)
 
 	mut style := node.style.default
 	if rect.contains_point(x: ctx.mouse.x, y: ctx.mouse.y) {
@@ -125,7 +133,7 @@ fn render_relative(mut node VNode, origin_x int, origin_y int, mut ctx RenderCon
 		rect.height = ctx.viewport.height
 	}
 
-	_ = ctx.register(rect, node.style, node.events)
+	_ = ctx.register(rect, node.style, node.events, node.tag)
 
 	saved_viewport := ctx.viewport
 	ctx.viewport = rect
