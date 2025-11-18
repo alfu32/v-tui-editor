@@ -205,12 +205,7 @@ fn build_file_content_markup(state LayoutState, work_width int, main_height int)
 		width_limit = work_width
 	}
 	total_lines := lines.len
-	mut digits := 1
-	mut tmp := total_lines
-	for tmp >= 10 {
-		tmp /= 10
-		digits++
-	}
+	gutter_width := 6
 	max_offset := if total_lines > visible_lines { total_lines - visible_lines } else { 0 }
 	mut offset := state.scroll_offset
 	if offset > max_offset {
@@ -225,12 +220,12 @@ fn build_file_content_markup(state LayoutState, work_width int, main_height int)
 			break
 		}
 		mut num := (line_index + 1).str()
-		if num.len < digits {
-			num = ' '.repeat(digits - num.len) + num
-		}
+		// if num.len < gutter_width {
+		// 	num = ' '.repeat(gutter_width - num.len) + num
+		// }
 		line := escape_text(truncate_line(lines[line_index], width_limit))
-		content := '${num} │ ${line}'
-		b.write_string("\n\t\t\t\t<text tag=\"work-line\" style=\"top:${i + 1};left:2;fg:#d0d0d0\">")
+		content := '│${num:4}│ ${line}'
+		b.write_string("\n\t\t\t\t<text tag=\"work-line\" style=\"top:${i + 1};width:6;left:2;fg:#d0d0d0\">")
 		b.write_string(content)
 		b.write_string("</text>")
 	}
@@ -246,7 +241,7 @@ fn refresh_file_entries(mut state LayoutState) {
 
 fn open_files_component(mut state LayoutState, width int, height int) reactive.VNode {
 	mut b := strings.new_builder(128)
-	mut available := height - 2
+	mut available := height
 	if available < 1 {
 		available = 1
 	}
@@ -359,12 +354,12 @@ const layout_template = r'
 			<relative tag="left-open" style="width:{{left_width}};height:{{open_panel_height}}">
 				<slot name="open_files"/>
 			</relative>
-			<rect tag="left-split-divider" style="top:{{open_panel_height}};width:{{left_width}};height:1;bg:#4a5368" onmousedown={start_split_resize} />
+			<rect tag="left-split-divider" style="top:{{open_panel_height}};width:{{left_width}};height:0;bg:#4a5368" onmousedown={start_split_resize} />
 			<relative tag="left-tree" style="top:{{open_panel_height_plus_one}};width:{{left_width}};height:{{tree_panel_height}}">
 				<slot name="file_tree"/>
 			</relative>
 		</rect>
-		<rect tag="divider" style="left:{{divider_left}};width:{{divider_width}};height:{{main_height}};bg:#888a90" onmousedown={start_resize} />
+		<rect tag="divider" style="left:{{divider_left}};width:{{divider_width}};height:{{main_height}};bg:#4a5368" onmousedown={start_resize} />
 		<rect tag="work" style="left:{{work_left}};width:{{work_width}};height:{{main_height}};bg:#101820" on:wheel={editor_scroll}>
 			<slot name="work_panel"/>
 		</rect>

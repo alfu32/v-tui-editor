@@ -31,21 +31,25 @@ fn render_rect(mut node VNode, origin_x int, origin_y int, mut ctx RenderContext
 		width:  node.props.width
 		height: node.props.height
 	}
-	if rect.width == 0 {
+	if node.props.width == -1 {
 		rect.width = ctx.viewport.width
 	}
-	if rect.height == 0 {
+	if node.props.height == -1 {
 		rect.height = ctx.viewport.height
+	}
+	if node.props.height == 0 {
+		rect.height = node.props.height + 1
 	}
 	_ = ctx.register(rect, node.style, node.events, node.tag)
 
 	mut style := node.style.default
 	if rect.contains_point(x: ctx.mouse.x, y: ctx.mouse.y) {
-		style = node.style.focus or { node.style.default }
+		style = (node.style.focus or { node.style.default })
 	}
 	ctx.tui.set_bg_color(r: style.background.r, g: style.background.g, b: style.background.b)
 	ctx.tui.set_color(r: style.foreground.r, g: style.foreground.g, b: style.foreground.b)
-	ctx.tui.draw_rect(rect.x, rect.y, rect.x + rect.width, rect.y + rect.height)
+	ctx.tui.draw_rect(rect.x, rect.y, rect.x + rect.width, rect.y + node.props.height)
+	// ctx.tui.draw_text(rect.x, rect.y, "x:${rect.x},y:${rect.y}")
 	ctx.tui.reset()
 
 	saved_viewport := ctx.viewport
