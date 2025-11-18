@@ -134,18 +134,19 @@ pub mut:
 	term_height int
 	propagate   bool = true
 }
+
 pub type UiEventHandler = fn (mut UiEvent)
 
 pub struct EventSpec {
 pub mut:
-	is_key        bool
-	is_mouse      bool
-	key_char      ?rune     // e.g. 'c' for "Ctrl-C"
-	mouse_action  string    // "click", "down", "up", "move", "wheel" or ""
-	req_ctrl      bool
-	req_alt       bool
-	req_shift     bool
-	req_meta      bool
+	is_key       bool
+	is_mouse     bool
+	key_char     ?rune  // e.g. 'c' for "Ctrl-C"
+	mouse_action string // "click", "down", "up", "move", "wheel" or ""
+	req_ctrl     bool
+	req_alt      bool
+	req_shift    bool
+	req_meta     bool
 }
 
 // ----------------- parsing -----------------
@@ -190,6 +191,7 @@ fn parse_event_spec(pattern string) EventSpec {
 
 	return spec
 }
+
 // Public factory: wrap `handler` with a filter described by `pattern`.
 pub fn on(pattern string, handler UiEventHandler) UiEventHandler {
 	spec := parse_event_spec(pattern)
@@ -231,7 +233,7 @@ fn (spec &EventSpec) matches_key(e UiEvent) bool {
 	if e.kind != .key_down {
 		return false
 	}
-	kc := spec.key_char or { return false}
+	kc := spec.key_char or { return false }
 
 	// case-insensitive compare
 	ev_ch := e.key.char.str().to_lower()
@@ -283,7 +285,6 @@ fn (spec &EventSpec) matches_mouse(e UiEvent) bool {
 	return true
 }
 
-
 // --------------------- Rendered nodes for events ---------------------
 
 pub struct RenderedNode {
@@ -293,8 +294,9 @@ pub:
 	style  TermStyleSpec
 	events []UiEventHandler
 }
-pub fn (node RenderedNode) dispatch_event(mut ev UiEvent){
-	for event_handler in node.events{
+
+pub fn (node RenderedNode) dispatch_event(mut ev UiEvent) {
+	for event_handler in node.events {
 		event_handler(mut ev)
 	}
 }
@@ -332,10 +334,10 @@ pub:
 
 pub struct NodeSpec {
 pub:
-	props    TermProps         = TermProps{}
-	style    TermStyleSpec     = default_style()
+	props    TermProps        = TermProps{}
+	style    TermStyleSpec    = default_style()
 	events   []UiEventHandler = []UiEventHandler{}
-	children []VNode           = []VNode{}
+	children []VNode          = []VNode{}
 }
 
 // --------------------- Root view type ---------------------
@@ -347,17 +349,17 @@ pub type RootViewFn = fn () VNode
 @[heap]
 struct App {
 mut:
-	tui      &tui.Context = unsafe { nil }
-	root_fn  RootViewFn   = unsafe { nil }
-	renderer &Renderer    = unsafe { nil }
-	counter  int
-	exit_code int
+	tui            &tui.Context = unsafe { nil }
+	root_fn        RootViewFn   = unsafe { nil }
+	renderer       &Renderer    = unsafe { nil }
+	counter        int
+	exit_code      int
 	exit_next_loop bool
 }
 
-pub fn (mut a App) will_exit(code int){
-	a.exit_code=code
-	a.exit_next_loop=true
+pub fn (mut a App) will_exit(code int) {
+	a.exit_code = code
+	a.exit_next_loop = true
 }
 
 struct FocusState {
@@ -404,14 +406,6 @@ fn (mut r Renderer) render_frame() {
 	r.ctx.nodes.clear()
 
 	root := r.app.root_fn()
-
-	// 1) register root as a full-viewport node
-	_ = r.ctx.register(
-		r.ctx.viewport,
-		default_style(),
-		root.events, // or root.style + handlers, depending on your RenderedNode
-	)
-
 	_ = root.render(root, 0, 0, mut r.ctx)
 
 	r.app.tui.flush()
@@ -423,10 +417,10 @@ fn (mut r Renderer) handle_tui_event(e &tui.Event) {
 	r.update_raw_input(e)
 	kind := r.map_event_kind(e)
 	if kind in [.mouse_move, .mouse_down, .mouse_up, .click] {
-		r.messages << "handle mouse event ${kind}"
+		r.messages << 'handle mouse event ${kind}'
 		r.handle_mouse_event(kind)
 	} else if kind in [.key_down, .key_up] {
-		r.messages << "handle key event ${kind}"
+		r.messages << 'handle key event ${kind}'
 		r.handle_key_event(kind)
 	}
 }
@@ -459,13 +453,13 @@ fn (mut r Renderer) handle_mouse_event(kind UiEventKind) {
 }
 
 fn (mut r Renderer) handle_key_event(kind UiEventKind) {
-	r.messages << "handling key event ${kind}"
-	r.messages << "handling key event focus path ${r.focus.path}"
+	r.messages << 'handling key event ${kind}'
+	r.messages << 'handling key event focus path ${r.focus.path}'
 	if r.focus.path.len == 0 {
-		r.messages << "handling key event no target ?!"
+		r.messages << 'handling key event no target ?!'
 		return
 	}
-	r.messages << "handling key event proceeding"
+	r.messages << 'handling key event proceeding'
 	target := r.focus.path[r.focus.path.len - 1]
 
 	mut ev := UiEvent{
@@ -478,7 +472,7 @@ fn (mut r Renderer) handle_key_event(kind UiEventKind) {
 		term_height: r.ctx.viewport.height
 		propagate:   true
 	}
-	r.messages << "dispatching key event ${ev}"
+	r.messages << 'dispatching key event ${ev}'
 	r.dispatch_event(mut ev, r.focus.path.clone())
 }
 
@@ -607,7 +601,7 @@ fn (mut r Renderer) update_raw_input(e &tui.Event) {
 	} else {
 		r.last_mouse.wheel = 0
 	}
-	r.messages << "event ${e.typ} ${r.last_key}  ${r.last_mouse}"
+	r.messages << 'event ${e.typ} ${r.last_key}  ${r.last_mouse}'
 	match e.typ {
 		.mouse_move, .mouse_down, .mouse_up, .mouse_drag {
 			r.last_mouse.x = e.x
@@ -615,7 +609,7 @@ fn (mut r Renderer) update_raw_input(e &tui.Event) {
 			r.last_mouse.buttons.left = e.button == .left
 			r.last_mouse.buttons.right = e.button == .right
 			r.last_mouse.buttons.middle = e.button == .middle
-			r.messages << "mouse button event ${r.last_mouse}"
+			r.messages << 'mouse button event ${r.last_mouse}'
 		}
 		.mouse_scroll {
 			if e.direction == .up {
@@ -625,13 +619,13 @@ fn (mut r Renderer) update_raw_input(e &tui.Event) {
 			} else {
 				r.last_mouse.wheel = 0
 			}
-			r.messages << "mouse scroll event ${r.last_mouse}"
+			r.messages << 'mouse scroll event ${r.last_mouse}'
 		}
 		.resized {
 			// keep viewport in sync if you want; render_frame will set it again anyway
 			r.ctx.viewport.width = e.width
 			r.ctx.viewport.height = e.height
-			r.messages << "window resize event ${r.ctx.viewport}"
+			r.messages << 'window resize event ${r.ctx.viewport}'
 		}
 		else {}
 	}
@@ -652,14 +646,15 @@ fn write_lines(path string, lines []string) ! {
 	text := lines.join('\n') // or '\r\n' if you want Windows-style
 	os.write_file(path, text)!
 }
+
 fn event_loop_function(e &tui.Event, user_data voidptr) {
 	mut app := unsafe { &App(user_data) }
 	if e.typ == .key_down && e.code == .r && e.modifiers.has(.ctrl) && e.modifiers.has(.shift) {
-		write_lines("direct-exit.txt",app.renderer.messages) or {}
+		write_lines('direct-exit.txt', app.renderer.messages) or {}
 		exit(0)
 	}
-	if app.exit_next_loop{
-		write_lines("debounced-exit.txt",app.renderer.messages) or {}
+	if app.exit_next_loop {
+		write_lines('debounced-exit.txt', app.renderer.messages) or {}
 		exit(app.exit_code)
 	}
 	app.renderer.handle_tui_event(e)
@@ -667,10 +662,10 @@ fn event_loop_function(e &tui.Event, user_data voidptr) {
 
 fn frame_loop_function(user_data voidptr) {
 	mut app := unsafe { &App(user_data) }
-	app.counter+=1
+	app.counter += 1
 	app.renderer.render_frame()
 	if app.counter == 300 {
-		app.renderer.messages << "intent to exit after 300 frames"
+		app.renderer.messages << 'intent to exit after 300 frames'
 		app.will_exit(0)
 	}
 }
