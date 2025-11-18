@@ -2,9 +2,53 @@ module reactive
 
 import term.ui as tui
 import os
+import time
+import arrays
+
+// Type alias for glyph set identifiers used in stylesheets.
+pub type GlyphSet = string
+pub type GlyphSetName = string
+
+// Optional: if you want to alias the map type too.
+pub type GlyphSetMap = map[string]string
+
+// All glyph sets.
+// Boxes: 8 chars, indices 0..7
+// Lines: 3 chars, indices 0..2
+	pub const glyph_sets = {
+		// boxes
+		'empty':                '        '
+		'box_light_straight':   '┌─┐│┘─└│'
+		'box_heavy_straight':   '┏━┓┃┛━┗┃'
+		'box_double_straight':  '╔═╗║╝═╚║'
+		'box_light_rounded':    '╭─╮│╯─╰│'
+
+		// lines (─)
+		'line_simple_simple':    '├─┤┬│┴'
+		'line_double_simple':    '╟─╢╤│╧'
+		'line_double_double':    '╠═╣╦║╩'
+	}
+
+// Get the rune at `index` in the named glyph set.
+// Returns '?' if the set or index is invalid.
+pub fn get_symbol(set_name GlyphSetName, index int) string {
+	s := glyph_sets[set_name] or {
+		return '?'
+	}
+	rs := s.runes()
+	if index < 0 || index >= rs.len {
+		return '?'
+	}
+	return rs[index].str()
+}
 
 // --------------------- Geometry & styling ---------------------
 
+pub struct TermPoint {
+	pub mut:
+	x      int
+	y      int
+}
 pub struct TermRect {
 pub mut:
 	x      int
@@ -20,6 +64,11 @@ pub fn (r TermRect) copy() TermRect {
 		width:  r.width
 		height: r.height
 	}
+}
+
+pub fn (r TermRect) contains_point(p TermPoint) bool {
+	return r.x <= p.x && p.x <= (r.x+r.width) &&
+		r.y <= p.y && p.y <= (r.y+r.height)
 }
 
 pub fn (r TermRect) is_empty() bool {
@@ -60,29 +109,98 @@ pub:
 	g u8
 	b u8
 }
+pub fn (tc TermColor) copy() TermColor{
+	return TermColor{
+		r: tc.r
+		g: tc.g
+		b: tc.b
+	}
+}
+fn lighteru8(a u8,value u8) u8 {
+	rma := f64(255-a)
+	add:=rma*f64(value)/f64(100)
+	return u8(a+add)
+}
+fn darkeru8(a u8,value u8) u8 {
+	rma := f64(a)
+	sub:=rma*f64(value)/f64(100)
+	return u8(a-sub)
+}
+pub fn (tc TermColor) lighter(value u8) TermColor{
+	return TermColor{
+		r: lighteru8(tc.r,value)
+		g: lighteru8(tc.g,value)
+		b: lighteru8(tc.b,value)
+	}
+}
+pub fn (tc TermColor) darker(value u8) TermColor{
+	return TermColor{
+		r: darkeru8(tc.r,value)
+		g: darkeru8(tc.g,value)
+		b: darkeru8(tc.b,value)
+	}
+}
 
 pub struct TermStyleState {
 pub:
 	background TermColor
 	foreground TermColor
+	border string = 'box_light_rounded'
+	line string = 'line_simple_simple'
+}
+
+pub fn (tss TermStyleState) copy() TermStyleState{
+	return TermStyleState{
+		background: tss.background.copy()
+		foreground: tss.foreground.copy()
+		border: tss.border+""
+		line: tss.line+""
+	}
 }
 
 pub struct TermStyleSpec {
 pub:
 	default TermStyleState
 	hover   ?TermStyleState
-	focus   ?TermStyleState
+    focus   ?TermStyleState
+}
+pub fn (tss TermStyleSpec) copy() TermStyleSpec{
+	return TermStyleSpec{
+		default: tss.default.copy()
+		hover: tss.hover or {tss.default}.copy()
+		focus: tss.focus or {tss.default}.copy()
+	}
 }
 
-fn default_style() TermStyleSpec {
+pub fn make_stylesheet(base_spec TermStyleState) TermStyleSpec {
 	return TermStyleSpec{
 		default: TermStyleState{
-			background: TermColor{0, 0, 0}
-			foreground: TermColor{255, 255, 255}
+			background: base_spec.background
+			foreground: base_spec.foreground.darker(30)
+			border: base_spec.border
+			line: base_spec.line
 		}
-		hover:   none
-		focus:   none
+		hover:   TermStyleState{
+			background: base_spec.background.lighter(30)
+			foreground: base_spec.foreground.lighter(30)
+			border: base_spec.border
+			line: base_spec.line
+		}
+		focus:   TermStyleState{
+			background: base_spec.background
+			foreground: base_spec.foreground.darker(10)
+			border: base_spec.border
+			line: base_spec.line
+		}
 	}
+}
+pub fn default_box_style() TermStyleSpec {
+	return make_stylesheet(
+			background: TermColor{32, 32, 32}
+			foreground: TermColor{192, 192, 192}
+			border: 'box_light_rounded'
+			line: 'line_simple_simple'
+	)
 }
 
 // --------------------- Events ---------------------
@@ -101,18 +219,34 @@ pub enum UiEventKind {
 pub struct KeyState {
 pub mut:
 	code  u32
+	num   u32
 	char  rune
 	ctrl  bool
 	alt   bool
 	shift bool
 	meta  bool
 }
+pub fn (ks KeyState) str() string {
+	mut mods:=0
+	if ks.shift {mods|=8}
+	if ks.ctrl {mods|=4}
+	if ks.meta {mods|=2}
+	if ks.alt {mods|=1}
+	return "KeyState{code:0x${ks.code:02X},num:0x${ks.num:02X},char:${ks.char},mods:b${mods:04b}}"
+}
 
 pub struct MouseButtons {
-pub mut:
+	pub mut:
 	left   bool
-	right  bool
 	middle bool
+	right  bool
+}
+pub fn (mb MouseButtons) str() string {
+	mut mods:=0
+	if mb.left {mods|=4}
+	if mb.middle {mods|=2}
+	if mb.right {mods|=1}
+	return "MouseButtons{b${mods:03b}}"
 }
 
 pub struct MouseState {
@@ -122,6 +256,9 @@ pub mut:
 	buttons MouseButtons
 	wheel   int
 }
+pub fn (ms MouseState) str() string {
+	return "MouseState{x:${ms.x},y:${ms.y},buttons:${ms.buttons},wheel:${ms.wheel}}"
+}
 
 pub struct UiEvent {
 pub mut:
@@ -130,9 +267,17 @@ pub mut:
 	path        []int
 	key         KeyState
 	mouse       MouseState
-	term_width  int
-	term_height int
+	renderer        Renderer
 	propagate   bool = true
+}
+pub fn (ev UiEvent) str() string {
+	return "
+	UiEvent{
+	kind:${ev.kind}, target:${ev.target}, path:${ev.path},
+	key:${ev.key},
+	mouse:${ev.mouse},
+	renderer:[Circular], propagate:${ev.propagate} }
+	".trim_indent()
 }
 
 pub type UiEventHandler = fn (mut UiEvent)
@@ -306,7 +451,18 @@ pub mut:
 	tui      &tui.Context = unsafe { nil }
 	viewport TermRect
 	nodes    []RenderedNode
+	mouse       MouseState    // last mouse position
+	messages []string
 }
+pub fn (mut ctx RenderContext) dump_messages_to_file(filename string)  ! {
+	os.write_lines(filename, ctx.messages)!
+}
+pub fn (mut ctx RenderContext) log(message string,file_file string) {
+	tm:=time.now()
+	ctx.messages << "${tm} [${file_file.replace('/home/devlin/Development/','')}] ${message}"
+	ctx.dump_messages_to_file("log.log") or {}
+}
+
 
 pub fn (mut ctx RenderContext) register(rect TermRect, style TermStyleSpec, events []UiEventHandler) int {
 	id := ctx.nodes.len
@@ -321,21 +477,25 @@ pub fn (mut ctx RenderContext) register(rect TermRect, style TermStyleSpec, even
 
 // --------------------- VNode & render model ---------------------
 
-pub type RenderFn = fn (node VNode, origin_x int, origin_y int, mut ctx RenderContext) TermRect
+pub type RenderFn = fn (mut node VNode, origin_x int, origin_y int, mut ctx RenderContext) TermRect
 
 pub struct VNode {
-pub:
-	render   RenderFn = unsafe { nil }
-	props    TermProps
-	style    TermStyleSpec
-	events   []UiEventHandler
-	children []VNode
+pub mut:
+	constructor string
+	tag         string
+	render      RenderFn = unsafe { nil }
+	props       TermProps
+	style       TermStyleSpec
+	events      []UiEventHandler
+	children    []VNode
+	has_focus 	bool
 }
 
 pub struct NodeSpec {
 pub:
+	tag 	 string
 	props    TermProps        = TermProps{}
-	style    TermStyleSpec    = default_style()
+	style    TermStyleSpec    = default_box_style()
 	events   []UiEventHandler = []UiEventHandler{}
 	children []VNode          = []VNode{}
 }
@@ -368,14 +528,13 @@ mut:
 }
 
 @[heap]
-struct Renderer {
-mut:
+pub struct Renderer {
+pub mut:
 	app        &App = unsafe { nil }
 	ctx        RenderContext
 	last_key   KeyState
 	last_mouse MouseState
 	focus      FocusState
-	messages   []string
 }
 
 // ---------- Renderer: frame ----------
@@ -393,6 +552,7 @@ fn new_renderer(app &App) &Renderer {
 fn (mut r Renderer) render_frame() {
 	width := r.app.tui.window_width
 	height := r.app.tui.window_height
+	r.ctx.mouse = r.last_mouse
 
 	r.app.tui.clear()
 
@@ -405,8 +565,18 @@ fn (mut r Renderer) render_frame() {
 	}
 	r.ctx.nodes.clear()
 
-	root := r.app.root_fn()
-	_ = root.render(root, 0, 0, mut r.ctx)
+	mut root := r.app.root_fn()
+
+	// 1) register root as a full-viewport node
+	root_id := r.ctx.register(
+		r.ctx.viewport,
+		default_box_style(),
+		root.events, // or root.style + handlers, depending on your RenderedNode
+	)
+	_ = root_id
+	r.ctx.log('registered root_id ${root_id}',@LOCATION)
+
+	_ = root.render(mut root, 0, 0, mut r.ctx)
 
 	r.app.tui.flush()
 }
@@ -417,10 +587,10 @@ fn (mut r Renderer) handle_tui_event(e &tui.Event) {
 	r.update_raw_input(e)
 	kind := r.map_event_kind(e)
 	if kind in [.mouse_move, .mouse_down, .mouse_up, .click] {
-		r.messages << 'handle mouse event ${kind}'
+		// r.ctx.log('handle mouse event ${kind}',@LOCATION)
 		r.handle_mouse_event(kind)
 	} else if kind in [.key_down, .key_up] {
-		r.messages << 'handle key event ${kind}'
+		r.ctx.log('handle key event ${kind}',@LOCATION)
 		r.handle_key_event(kind)
 	}
 }
@@ -433,9 +603,10 @@ fn (mut r Renderer) handle_mouse_event(kind UiEventKind) {
 	if path.len == 0 {
 		return
 	}
+	r.focus.path = path
 	target := path[path.len - 1]
 
-	if kind == .mouse_down || kind == .click {
+	if kind == .mouse_down || kind == .click || kind == .mouse_move {
 		r.update_focus(path)
 	}
 
@@ -445,34 +616,32 @@ fn (mut r Renderer) handle_mouse_event(kind UiEventKind) {
 		path:        path.clone()
 		key:         r.last_key
 		mouse:       r.last_mouse
-		term_width:  r.ctx.viewport.width
-		term_height: r.ctx.viewport.height
+		renderer: 		 r
 		propagate:   true
 	}
 	r.dispatch_event(mut ev, path)
 }
 
 fn (mut r Renderer) handle_key_event(kind UiEventKind) {
-	r.messages << 'handling key event ${kind}'
-	r.messages << 'handling key event focus path ${r.focus.path}'
+	r.ctx.log('handling key event ${kind}',@LOCATION)
+	r.ctx.log('handling key event focus path ${r.focus.path}',@LOCATION)
 	if r.focus.path.len == 0 {
-		r.messages << 'handling key event no target ?!'
+		r.ctx.log('handling key event no target ?!',@LOCATION)
 		return
 	}
-	r.messages << 'handling key event proceeding'
+	r.ctx.log('handling key event proceeding',@LOCATION)
 	target := r.focus.path[r.focus.path.len - 1]
 
 	mut ev := UiEvent{
 		kind:        kind
 		target:      target
 		path:        r.focus.path.clone()
+		renderer:    r
 		key:         r.last_key
 		mouse:       r.last_mouse
-		term_width:  r.ctx.viewport.width
-		term_height: r.ctx.viewport.height
 		propagate:   true
 	}
-	r.messages << 'dispatching key event ${ev}'
+	r.ctx.log('dispatching key event ${ev}',@LOCATION)
 	r.dispatch_event(mut ev, r.focus.path.clone())
 }
 
@@ -482,12 +651,16 @@ struct Hit {
 }
 
 // hit-path from flattened nodes only; parents hit by area containment
-fn (r &Renderer) hit_path(x int, y int) []int {
+fn (mut r Renderer) hit_path(x int, y int) []int {
 	mut hits := []Hit{}
 	for n in r.ctx.nodes {
 		if x >= n.rect.x && x < n.rect.x + n.rect.width && y >= n.rect.y
-			&& y < n.rect.y + n.rect.height {
-			area := n.rect.width * n.rect.height
+			&& y < n.rect.y + n.rect.height/* || n.id == 0 */{
+			mut area := n.rect.width * n.rect.height
+			// if n.id == 0 {
+			// 	area = r.ctx.viewport.width * r.ctx.viewport.width
+			// 	// r.ctx.log('added root to hit path with area ${area}',@LOCATION)
+			// }
 			hits << Hit{
 				id:   n.id
 				area: area
@@ -502,15 +675,21 @@ fn (r &Renderer) hit_path(x int, y int) []int {
 	}
 	return path
 }
-
+fn ident[T](t int) string {
+	return "$t"
+}
 fn (mut r Renderer) update_focus(new_path []int) {
 	old_path := r.focus.path
 	if new_path.len == 0 && old_path.len == 0 {
 		return
 	}
+	if arrays.join_to_string(new_path,(","),ident[int]) == arrays.join_to_string(old_path,(","),ident[int]) {
+		return
+	}
 	k := common_prefix_len_ids(old_path, new_path)
 
 	// blur old
+	r.ctx.log("bluring ${old_path}",@LOCATION)
 	for i := old_path.len - 1; i >= k; i-- {
 		id := old_path[i]
 		node := r.node_by_id(id) or { continue }
@@ -520,14 +699,14 @@ fn (mut r Renderer) update_focus(new_path []int) {
 			path:        old_path[..i + 1].clone()
 			key:         r.last_key
 			mouse:       r.last_mouse
-			term_width:  r.ctx.viewport.width
-			term_height: r.ctx.viewport.height
+			renderer: r
 			propagate:   true
 		}
 		node.dispatch_event(mut blur_event)
 	}
 
 	// focus new
+	r.ctx.log("focusing ${new_path}",@LOCATION)
 	for i := k; i < new_path.len; i++ {
 		id := new_path[i]
 		node := r.node_by_id(id) or { continue }
@@ -537,8 +716,7 @@ fn (mut r Renderer) update_focus(new_path []int) {
 			path:        new_path[..i + 1].clone()
 			key:         r.last_key
 			mouse:       r.last_mouse
-			term_width:  r.ctx.viewport.width
-			term_height: r.ctx.viewport.height
+			renderer: r
 			propagate:   true
 		}
 		node.dispatch_event(mut focus_event)
@@ -570,12 +748,13 @@ fn (mut r Renderer) dispatch_event(mut e UiEvent, path []int) {
 	for i := path.len - 1; i >= 0 && e.propagate; i-- {
 		id := path[i]
 		node := r.node_by_id(id) or { continue }
-		for handler in node.events {
-			handler(mut e)
-			// if !e.propagate {
-			// 	break
-			// }
-		}
+		node.dispatch_event(mut e)
+		// for handler in node.events {
+		// 	handler(mut e)
+		// 	// if !e.propagate {
+		// 	// 	break
+		// 	// }
+		// }
 	}
 }
 
@@ -601,7 +780,7 @@ fn (mut r Renderer) update_raw_input(e &tui.Event) {
 	} else {
 		r.last_mouse.wheel = 0
 	}
-	r.messages << 'event ${e.typ} ${r.last_key}  ${r.last_mouse}'
+	// r.ctx.log('event ${e.typ} ${r.last_key}  ${r.last_mouse}',@LOCATION)
 	match e.typ {
 		.mouse_move, .mouse_down, .mouse_up, .mouse_drag {
 			r.last_mouse.x = e.x
@@ -609,7 +788,7 @@ fn (mut r Renderer) update_raw_input(e &tui.Event) {
 			r.last_mouse.buttons.left = e.button == .left
 			r.last_mouse.buttons.right = e.button == .right
 			r.last_mouse.buttons.middle = e.button == .middle
-			r.messages << 'mouse button event ${r.last_mouse}'
+			// r.ctx.log('mouse button event ${r.last_mouse}',@LOCATION)
 		}
 		.mouse_scroll {
 			if e.direction == .up {
@@ -619,13 +798,13 @@ fn (mut r Renderer) update_raw_input(e &tui.Event) {
 			} else {
 				r.last_mouse.wheel = 0
 			}
-			r.messages << 'mouse scroll event ${r.last_mouse}'
+			r.ctx.log('mouse scroll event ${r.last_mouse}',@LOCATION)
 		}
 		.resized {
 			// keep viewport in sync if you want; render_frame will set it again anyway
 			r.ctx.viewport.width = e.width
 			r.ctx.viewport.height = e.height
-			r.messages << 'window resize event ${r.ctx.viewport}'
+			r.ctx.log('window resize event ${r.ctx.viewport}',@LOCATION)
 		}
 		else {}
 	}
@@ -642,19 +821,15 @@ fn (r &Renderer) map_event_kind(e &tui.Event) UiEventKind {
 }
 
 // ---------- term.ui callbacks (internal) ----------
-fn write_lines(path string, lines []string) ! {
-	text := lines.join('\n') // or '\r\n' if you want Windows-style
-	os.write_file(path, text)!
-}
 
 fn event_loop_function(e &tui.Event, user_data voidptr) {
 	mut app := unsafe { &App(user_data) }
 	if e.typ == .key_down && e.code == .r && e.modifiers.has(.ctrl) && e.modifiers.has(.shift) {
-		write_lines('direct-exit.txt', app.renderer.messages) or {}
-		exit(0)
+		app.renderer.ctx.dump_messages_to_file('direct-exit.log') or {}
+		app.will_exit(0)
 	}
 	if app.exit_next_loop {
-		write_lines('debounced-exit.txt', app.renderer.messages) or {}
+		app.renderer.ctx.dump_messages_to_file('final-exit.log') or {}
 		exit(app.exit_code)
 	}
 	app.renderer.handle_tui_event(e)
@@ -664,10 +839,6 @@ fn frame_loop_function(user_data voidptr) {
 	mut app := unsafe { &App(user_data) }
 	app.counter += 1
 	app.renderer.render_frame()
-	if app.counter == 300 {
-		app.renderer.messages << 'intent to exit after 300 frames'
-		app.will_exit(0)
-	}
 }
 
 // --------------------- Public Reactive API ---------------------
