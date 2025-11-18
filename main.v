@@ -1,162 +1,146 @@
 import reactive
 
-fn templated_panel(message string, children []reactive.VNode) reactive.VNode {
-	close_handler := fn [message] (mut e reactive.UiEvent) {
-		e.renderer.ctx.log('templated close button clicked (${message})', @FN + ' ' + @FILE_LINE)
-	}
-	ctx := reactive.TemplateContext{
-		props: {
-			'message': message
-		}
-		handlers: {
-			'close_handler': close_handler
-		}
-		children: children
-	}
-	return reactive.view_from_template('
-<box_layout style="top:17;left:2;width:60;height:12;bg:#202840;fg:#d2d2d2;border:box_light_rounded">
-	<button onclick={close_handler} style="top:1;left:2;width:24;height:3;bg:#a05c20;fg:#202020">
-		Close templated panel
-	</button>
-	<text style="top:5;left:2;width:54;height:1">{{message}}</text>
-	<slot/>
-</box_layout>
-'.trim_indent(), ctx) or {
-		reactive.text(
-			tag: 'template-error'
-			props: reactive.TermProps{
-				text: 'template error: ' + err.msg()
-			}
-		)
-	}
+const top_bar_height = 3
+const status_bar_height = 2
+const divider_width = 1
+const min_left_width = 12
+const min_right_width = 20
+
+fn itos(value int) string {
+	return '${value}'
 }
 
-fn root_view() reactive.VNode {
-	templated_children := [
-		reactive.text(
-			tag: 'slot-message'
-			props: reactive.TermProps{
-				top: 7
-				left: 2
-				text: 'Slot content injected via <slot/>'
-			}
-		)
-	]
-	return reactive.box(
-		tag: 	"main"
-		props:    reactive.TermProps{
-			top:    0
-			left:   0
-			width:  0 // fill viewport
-			height: 0
-		}
-		style:reactive.make_stylesheet(
-			background: reactive.TermColor{32, 32, 32}
-			foreground: reactive.TermColor{192, 192, 192}
-			border: 'box_light_straight'
-			line:'line_simple_simple'
-		)
-		events:   [
-			reactive.on('ctrl-c', fn (mut e reactive.UiEvent) {
-				e.propagate = true
-				e.renderer.ctx.log('Ctrl-C exit called',@FN+" "+@FILE_LINE)
-				e.renderer.ctx.dump_messages_to_file('ctrl-c-exit.log')
-				e.renderer.app.will_exit(0)
-			}),
-		]
-		children: [
-			reactive.button(
-				tag: 	"close-button"
-				props:    reactive.TermProps{
-					top:    1
-					left:   1
-					width:  20
-					height: 3
-				}
-				style:reactive.make_stylesheet(
-					background: reactive.TermColor{160, 92, 32}
-					foreground: reactive.TermColor{32,32,32}
-					border: 'empty'
-					line:'empty'
-				)
-				events:   [
-					reactive.on('click', fn (mut e reactive.UiEvent) {
-						e.propagate = true
-						e.renderer.ctx.log('exit button clicked',@FN+" "+@FILE_LINE)
-						e.renderer.ctx.dump_messages_to_file('click-exit.log')
-						e.renderer.app.will_exit(0)
-					}),
-				]
-				children: [reactive.text(
-					tag: 	"button-text"
-					props: reactive.TermProps{
-						top:  1
-						left: 3
-						text: 'Click To Close'
-					}
-				),
-				]
-			)
-			reactive.container_border_box(
-				tag: 	"big-box"
-				props:    reactive.TermProps{
-					top:    6
-					left:   12
-					width:  40
-					height: 9
-				}
-				style:reactive.make_stylesheet(
-					background: reactive.TermColor{64, 32, 32}
-					foreground: reactive.TermColor{192, 192, 192}
-					border: 'box_light_straight'
-				)
-				events:   [
-					reactive.on('ctrl-c', fn (mut e reactive.UiEvent) {
-						e.propagate = true
-						e.renderer.ctx.log('Ctrl-C exit called on button',@FN+" "+@FILE_LINE)
-						e.renderer.ctx.dump_messages_to_file('ctrl-c-exit.log')
-						e.renderer.app.will_exit(0)
-					}),
-					reactive.on('click', fn (mut e reactive.UiEvent) {
-						e.propagate = true
-						e.renderer.ctx.log('exit button clicked',@FN+" "+@FILE_LINE)
-						e.renderer.ctx.dump_messages_to_file('click-exit.log')
-						e.renderer.app.will_exit(0)
-					}),
-				]
-				children: [
-					reactive.hline(
-						tag: 	"h-line-button"
-						props: reactive.TermProps{
-							top:   5
-							left:  0
-						}
-						style: reactive.default_box_style()
-					),
-					reactive.vline(
-						tag: 	"v-line-button"
-						props: reactive.TermProps{
-							top:    0
-							left:   12
-						}
-						style: reactive.default_box_style()
-					),
-					reactive.text(
-						tag: 	"button-text"
-						props: reactive.TermProps{
-							top:  3
-							left: 3
-							text: 'Hello reactive term UI'
-						}
-					),
-				]
-			),
-			templated_panel('Templates render runtime markup', templated_children),
-		]
-	)
+struct LayoutState {
+mut:
+	left_panel_width int = 26
+	resizing         bool
+	viewport_width   int = 80
+	viewport_height  int = 24
+}
+
+fn clamp_left_width(width int, viewport_width int) int {
+	mut min_total := min_left_width + min_right_width + divider_width
+	if min_total >= viewport_width {
+		return min_left_width
+	}
+	mut clamped := width
+	if clamped < min_left_width {
+		clamped = min_left_width
+	}
+	max_width := viewport_width - min_right_width - divider_width
+	if clamped > max_width {
+		clamped = max_width
+	}
+	return clamped
+}
+
+fn update_resize(mut state LayoutState, mut e reactive.UiEvent, force bool) {
+	if !state.resizing && !force {
+		return
+	}
+	state.viewport_width = e.renderer.ctx.viewport.width
+	state.viewport_height = e.renderer.ctx.viewport.height
+	state.left_panel_width = clamp_left_width(e.mouse.x, state.viewport_width)
+}
+
+const layout_template = r'
+<relative tag="root" style="width:{{viewport_width}};height:{{viewport_height}};bg:#181c20" onmousemove={drag_resize} onmouseup={stop_resize}>
+	<rect tag="top-bar" style="width:{{viewport_width}};height:{{top_bar_height}};bg:#2b344d">
+		<text style="top:1;left:2;fg:#f0f0f0">V Reactive Workspace</text>
+	</rect>
+	<rect tag="status-bar" style="top:{{status_top}};width:{{viewport_width}};height:{{status_height}};bg:#222730">
+		<text style="top:1;left:2;fg:#c0c0c0">Panel {{left_width}}px | Editor {{work_width}}px | Drag divider to resize. Press Esc to exit.</text>
+	</rect>
+	<relative tag="main" style="top:{{main_top}};width:{{viewport_width}};height:{{main_height}}">
+		<rect tag="left-panel" style="width:{{left_width}};height:{{main_height}};bg:#1f2736;fg:#f0f0f0">
+			<text style="top:1;left:2;fg:#9ddcff">Explorer</text>
+			<text style="top:3;left:2;fg:#d0d0d0">- renderer.v</text>
+			<text style="top:4;left:2;fg:#d0d0d0">- template.v</text>
+			<text style="top:5;left:2;fg:#d0d0d0">- layout.templ</text>
+		</rect>
+		<rect tag="divider" style="left:{{divider_left}};width:{{divider_width}};height:{{main_height}};bg:#888a90" onmousedown={start_resize} onmousemove={drag_resize} onmouseup={stop_resize} />
+		<relative tag="work" style="left:{{work_left}};width:{{work_width}};height:{{main_height}};bg:#10141c">
+			<rect tag="work-surface" style="width:{{work_width}};height:{{main_height}};bg:#101820">
+				<text style="top:1;left:2;fg:#9cdcfe">fn render_workspace() &#123;</text>
+				<text style="top:2;left:4;fg:#dcdcaa">// Build layouts with &lt;relative&gt;, &lt;rect&gt; and &lt;text&gt;</text>
+				<text style="top:3;left:4;fg:#c586c0">resize_left_panel(mouse_drag)</text>
+				<text style="top:4;left:2;fg:#9cdcfe">&#125;</text>
+			</rect>
+		</relative>
+	</relative>
+</relative>
+'.trim_indent()
+
+
+fn build_layout_view(mut state LayoutState) reactive.VNode {
+	viewport_width := state.viewport_width
+	viewport_height := state.viewport_height
+	mut status_top := viewport_height - status_bar_height
+	if status_top < top_bar_height {
+		status_top = top_bar_height
+	}
+	main_height := if viewport_height > top_bar_height + status_bar_height {
+		viewport_height - top_bar_height - status_bar_height
+	} else {
+		1
+	}
+	state.left_panel_width = clamp_left_width(state.left_panel_width, viewport_width)
+	left_width := state.left_panel_width
+	work_left := left_width + divider_width
+	mut work_width := viewport_width - work_left
+	if work_width < min_right_width {
+		work_width = min_right_width
+	}
+	mut props := map[string]string{}
+	props['viewport_width'] = itos(viewport_width)
+	props['viewport_height'] = itos(viewport_height)
+	props['top_bar_height'] = itos(top_bar_height)
+	props['status_height'] = itos(status_bar_height)
+	props['status_top'] = itos(status_top)
+	props['main_top'] = itos(top_bar_height)
+	props['main_height'] = itos(main_height)
+	props['left_width'] = itos(left_width)
+	props['divider_left'] = itos(left_width)
+	props['divider_width'] = itos(divider_width)
+	props['work_left'] = itos(work_left)
+	props['work_width'] = itos(work_width)
+	mut handlers := map[string]reactive.UiEventHandler{}
+	handlers['start_resize'] = fn [mut state] (mut e reactive.UiEvent) {
+		state.resizing = true
+		update_resize(mut state, mut e, true)
+	}
+	handlers['drag_resize'] = fn [mut state] (mut e reactive.UiEvent) {
+		update_resize(mut state, mut e, false)
+	}
+	handlers['stop_resize'] = fn [mut state] (mut e reactive.UiEvent) {
+		state.resizing = false
+		update_resize(mut state, mut e, true)
+	}
+	ctx := reactive.TemplateContext{
+		props: props
+		handlers: handlers
+	}
+	return reactive.view_from_template(layout_template, ctx) or {
+		reactive.relative(reactive.NodeSpec{
+			tag: 'error'
+			props: reactive.TermProps{ width: viewport_width, height: viewport_height }
+			children: [reactive.text(reactive.NodeSpec{
+				tag: 'error-text'
+				props: reactive.TermProps{ text: 'template error: ' + err.msg() }
+			})]
+		})
+	}
 }
 
 fn main() {
-	mut app := reactive.reactive_app(root_view)
+	mut state := LayoutState{}
+	root := fn [mut state] () reactive.VNode {
+		return build_layout_view(mut state)
+	}
+	mut app := reactive.reactive_app(root)
+	app.on_viewport_change(fn [mut state] (viewport reactive.TermRect) {
+		state.viewport_width = viewport.width
+		state.viewport_height = viewport.height
+	})
 	app.run()!
 }

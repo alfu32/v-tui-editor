@@ -1,11 +1,11 @@
 module reactive
 
-// Rect union helper
+// Rect union helper used by containers.
 fn union_rect(a TermRect, b TermRect) TermRect {
-	if a.width == 0 && a.height == 0 {
+	if a.is_empty() {
 		return b
 	}
-	if b.width == 0 && b.height == 0 {
+	if b.is_empty() {
 		return a
 	}
 	x1 := if a.x < b.x { a.x } else { b.x }
@@ -20,10 +20,11 @@ fn union_rect(a TermRect, b TermRect) TermRect {
 	}
 }
 
-// --------------------- Built-in components (all just VNodes) ---------------------
+// --------------------- Primitive components ---------------------
 
-// BOX: filled rect, grows parent, children rendered inside.
-fn render_box(mut node VNode, origin_x int, origin_y int, mut ctx RenderContext) TermRect {
+// RECT: fills a rectangle using the node style. Width/height of 0 fill the
+// entire viewport (or whatever space the container provides via origin).
+fn render_rect(mut node VNode, origin_x int, origin_y int, mut ctx RenderContext) TermRect {
 	mut rect := TermRect{
 		x:      origin_x + node.props.left
 		y:      origin_y + node.props.top
@@ -36,283 +37,61 @@ fn render_box(mut node VNode, origin_x int, origin_y int, mut ctx RenderContext)
 	if rect.height == 0 {
 		rect.height = ctx.viewport.height
 	}
-
 	_ = ctx.register(rect, node.style, node.events)
 
-	// draw immediately
-
-	mut s := node.style.default
-
-	has_focus:=node.has_focus || rect.contains_point(x:ctx.mouse.x,y:ctx.mouse.y)
-	if has_focus{
-		s=node.style.focus or {node.style.default}
+	mut style := node.style.default
+	if rect.contains_point(x: ctx.mouse.x, y: ctx.mouse.y) {
+		style = node.style.focus or { node.style.default }
 	}
-	ctx.tui.set_bg_color(r: s.background.r, g: s.background.g, b: s.background.b)
-	ctx.tui.set_color(r: s.foreground.r, g: s.foreground.g, b: s.foreground.b)
-	ctx.tui.draw_rect(rect.x,rect.y,rect.x+rect.width,rect.y+rect.height)
-	ctx.tui.reset()
-	// for dy := 0; dy < rect.height; dy++ {
-	// 	for dx := 0; dx < rect.width; dx++ {
-	// 		ctx.tui.draw_text(rect.x + dx, rect.y + dy, ' ')
-	// 	}
-	// }
-
-	mut combined := rect
-	for mut child in node.children {
-		// child.has_focus=has_focus
-		child_rect := child.render(mut child, rect.x, rect.y, mut ctx)
-		combined = union_rect(combined, child_rect)
-	}
-	return combined
-}
-
-pub fn box(spec NodeSpec) VNode {
-	return VNode{
-		constructor: "box"
-		tag: 	  spec.tag
-		render:   render_box
-		props:    spec.props
-		style:    spec.style
-		events:   spec.events
-		children: spec.children
-	}
-}
-
-// BORDER BOX: border only, grows parent, children inside.
-fn render_button(mut node VNode, origin_x int, origin_y int, mut ctx RenderContext) TermRect {
-	mut rect := TermRect{
-		x:      origin_x + node.props.left
-		y:      origin_y + node.props.top
-		width:  node.props.width
-		height: node.props.height
-	}
-	if rect.width == 0 {
-		rect.width = ctx.viewport.width
-	}
-	if rect.height == 0 {
-		rect.height = ctx.viewport.height
-	}
-
-	_ = ctx.register(rect, node.style, node.events)
-
-	mut s := node.style.default
-	has_focus:=node.has_focus || rect.contains_point(x:ctx.mouse.x,y:ctx.mouse.y)
-	if has_focus{
-		s=node.style.focus or {node.style.default}
-	}
-	ctx.tui.set_bg_color(r: s.background.r, g: s.background.g, b: s.background.b)
-	ctx.tui.set_color(r: s.foreground.r, g: s.foreground.g, b: s.foreground.b)
-	ctx.tui.draw_rect(rect.x,rect.y,rect.x+rect.width-1,rect.y+rect.height-1)
-
-	if rect.width > 1 && rect.height > 1 {
-		// corners
-		ctx.tui.draw_text(rect.x, rect.y, get_symbol(s.border,0))
-		ctx.tui.draw_text(rect.x + rect.width - 1, rect.y, get_symbol(s.border,2))
-		ctx.tui.draw_text(rect.x + rect.width - 1, rect.y + rect.height - 1, get_symbol(s.border,4))
-		ctx.tui.draw_text(rect.x, rect.y + rect.height - 1, get_symbol(s.border,6))
-		// top/bottom
-		for dx := 1; dx < rect.width - 1; dx++ {
-			ctx.tui.draw_text(rect.x + dx, rect.y, get_symbol(s.border,1))
-			ctx.tui.draw_text(rect.x + dx, rect.y + rect.height - 1, get_symbol(s.border,5))
-		}
-		// left/right
-		for dy := 1; dy < rect.height - 1; dy++ {
-			ctx.tui.draw_text(rect.x, rect.y + dy, get_symbol(s.border,7))
-			ctx.tui.draw_text(rect.x + rect.width - 1, rect.y + dy, get_symbol(s.border,3))
-		}
-	}
+	ctx.tui.set_bg_color(r: style.background.r, g: style.background.g, b: style.background.b)
+	ctx.tui.set_color(r: style.foreground.r, g: style.foreground.g, b: style.foreground.b)
+	ctx.tui.draw_rect(rect.x, rect.y, rect.x + rect.width, rect.y + rect.height)
 	ctx.tui.reset()
 
-	mut combined := rect
-	for mut child in node.children {
-		child.has_focus=has_focus
-		child.style=node.style.copy()
-		child_rect := child.render(mut child, rect.x, rect.y, mut ctx)
-		combined = union_rect(combined, child_rect)
-	}
-	return combined
+	return rect
 }
 
-pub fn button(spec NodeSpec) VNode {
+pub fn rect(spec NodeSpec) VNode {
 	return VNode{
-		constructor: "button"
-		tag: 	  spec.tag
-		render:   render_button
-		props:    spec.props
-		style:    spec.style
-		events:   spec.events
-		children: spec.children
+		constructor: 'rect'
+		tag:         spec.tag
+		render:      render_rect
+		props:       spec.props
+		style:       spec.style
+		events:      spec.events
+		children:    spec.children
 	}
 }
 
-// BORDER BOX: border only, grows parent, children inside.
-fn render_border_box(mut node VNode, origin_x int, origin_y int, mut ctx RenderContext) TermRect {
-	mut rect := TermRect{
-		x:      origin_x + node.props.left
-		y:      origin_y + node.props.top
-		width:  node.props.width
-		height: node.props.height
-	}
-	if rect.width == 0 {
-		rect.width = ctx.viewport.width
-	}
-	if rect.height == 0 {
-		rect.height = ctx.viewport.height
-	}
-
-	_ = ctx.register(rect, node.style, node.events)
-
-	mut s := node.style.default
-	has_focus:=node.has_focus || rect.contains_point(x:ctx.mouse.x,y:ctx.mouse.y)
-	if has_focus{
-		s=node.style.focus or {node.style.default}
-	}
-	ctx.tui.set_bg_color(r: s.background.r, g: s.background.g, b: s.background.b)
-	ctx.tui.set_color(r: s.foreground.r, g: s.foreground.g, b: s.foreground.b)
-	ctx.tui.draw_rect(rect.x,rect.y,rect.x+rect.width-1,rect.y+rect.height-1)
-
-	if rect.width > 1 && rect.height > 1 {
-		// corners
-		ctx.tui.draw_text(rect.x, rect.y, get_symbol(s.border,0))
-		ctx.tui.draw_text(rect.x + rect.width - 1, rect.y, get_symbol(s.border,2))
-		ctx.tui.draw_text(rect.x + rect.width - 1, rect.y + rect.height - 1, get_symbol(s.border,4))
-		ctx.tui.draw_text(rect.x, rect.y + rect.height - 1, get_symbol(s.border,6))
-		// top/bottom
-		for dx := 1; dx < rect.width - 1; dx++ {
-			ctx.tui.draw_text(rect.x + dx, rect.y, get_symbol(s.border,1))
-			ctx.tui.draw_text(rect.x + dx, rect.y + rect.height - 1, get_symbol(s.border,5))
-		}
-		// left/right
-		for dy := 1; dy < rect.height - 1; dy++ {
-			ctx.tui.draw_text(rect.x, rect.y + dy, get_symbol(s.border,7))
-			ctx.tui.draw_text(rect.x + rect.width - 1, rect.y + dy, get_symbol(s.border,3))
-		}
-	}
-	ctx.tui.reset()
-
-	mut combined := rect
-	for mut child in node.children {
-		// child.has_focus=has_focus
-		child_rect := child.render(mut child, rect.x, rect.y, mut ctx)
-		combined = union_rect(combined, child_rect)
-	}
-	return combined
-}
-
-pub fn border_box(spec NodeSpec) VNode {
-	return VNode{
-		constructor: "border_box"
-		tag: 	  spec.tag
-		render:   render_border_box
-		props:    spec.props
-		style:    spec.style
-		events:   spec.events
-		children: spec.children
-	}
-}
-
-
-// BORDER BOX: border only, grows parent, children inside.
-fn render_container_border_box(mut node VNode, origin_x int, origin_y int, mut ctx RenderContext) TermRect {
-	mut rect := TermRect{
-		x:      origin_x + node.props.left
-		y:      origin_y + node.props.top
-		width:  node.props.width
-		height: node.props.height
-	}
-	if rect.width == 0 {
-		rect.width = ctx.viewport.width
-	}
-	if rect.height == 0 {
-		rect.height = ctx.viewport.height
-	}
-
-	_ = ctx.register(rect, node.style, node.events)
-
-	mut s := node.style.default
-	has_focus:=node.has_focus || rect.contains_point(x:ctx.mouse.x,y:ctx.mouse.y)
-	if has_focus{
-		s=node.style.focus or {node.style.default}
-	}
-	ctx.tui.set_bg_color(r: s.background.r, g: s.background.g, b: s.background.b)
-	ctx.tui.set_color(r: s.foreground.r, g: s.foreground.g, b: s.foreground.b)
-	ctx.tui.draw_rect(rect.x,rect.y,rect.x+rect.width-1,rect.y+rect.height-1)
-
-	if rect.width > 1 && rect.height > 1 {
-		// corners
-		ctx.tui.draw_text(rect.x, rect.y, get_symbol(s.border,0))
-		ctx.tui.draw_text(rect.x + rect.width - 1, rect.y, get_symbol(s.border,2))
-		ctx.tui.draw_text(rect.x + rect.width - 1, rect.y + rect.height - 1, get_symbol(s.border,4))
-		ctx.tui.draw_text(rect.x, rect.y + rect.height - 1, get_symbol(s.border,6))
-		// top/bottom
-		for dx := 1; dx < rect.width - 1; dx++ {
-			ctx.tui.draw_text(rect.x + dx, rect.y, get_symbol(s.border,1))
-			ctx.tui.draw_text(rect.x + dx, rect.y + rect.height - 1, get_symbol(s.border,5))
-		}
-		// left/right
-		for dy := 1; dy < rect.height - 1; dy++ {
-			ctx.tui.draw_text(rect.x, rect.y + dy, get_symbol(s.border,7))
-			ctx.tui.draw_text(rect.x + rect.width - 1, rect.y + dy, get_symbol(s.border,3))
-		}
-	}
-
-	ctx.tui.reset()
-
-	mut combined := rect
-	for mut child in node.children {
-		child.has_focus=has_focus
-		child.style=node.style.copy()
-		child_rect := child.render(mut child, rect.x, rect.y, mut ctx)
-		combined = union_rect(combined, child_rect)
-	}
-	return combined
-}
-pub struct BorderBoxNodeSpec{
-	NodeSpec
-	style_propagation string = 'overwrite'
-}
-pub fn container_border_box(spec BorderBoxNodeSpec) VNode {
-	return VNode{
-		constructor: "container_border_box"
-		tag: 	  spec.tag
-		render:   render_container_border_box
-		props:    spec.props
-		style:    spec.style
-		events:   spec.events
-		children: spec.children
-	}
-}
-
-// TEXT: draws a line of text, grows parent by its rect (unless you want otherwise).
+// TEXT: draws a string at the provided position.
 fn render_text(mut node VNode, origin_x int, origin_y int, mut ctx RenderContext) TermRect {
 	x := origin_x + node.props.left
 	y := origin_y + node.props.top
 
-	mut w := node.props.width
-	if w == 0 {
-		w = node.props.text.len
+	mut width := node.props.width
+	if width == 0 {
+		width = node.props.text.len
 	}
-	mut h := node.props.height
-	if h == 0 {
-		h = 1
+	mut height := node.props.height
+	if height == 0 {
+		height = 1
 	}
 
 	rect := TermRect{
 		x:      x
 		y:      y
-		width:  w
-		height: h
+		width:  width
+		height: height
 	}
 
 	_ = ctx.register(rect, node.style, node.events)
 
-	mut s := node.style.default
-	has_focus:=node.has_focus || rect.contains_point(x:ctx.mouse.x,y:ctx.mouse.y)
-	if has_focus{
-		s=node.style.focus or {node.style.default}
+	mut style := node.style.default
+	if rect.contains_point(x: ctx.mouse.x, y: ctx.mouse.y) {
+		style = node.style.focus or { node.style.default }
 	}
-	ctx.tui.set_bg_color(r: s.background.r, g: s.background.g, b: s.background.b)
-	ctx.tui.set_color(r: s.foreground.r, g: s.foreground.g, b: s.foreground.b)
+	ctx.tui.set_bg_color(r: style.background.r, g: style.background.g, b: style.background.b)
+	ctx.tui.set_color(r: style.foreground.r, g: style.foreground.g, b: style.foreground.b)
 	ctx.tui.draw_text(rect.x, rect.y, node.props.text)
 	ctx.tui.reset()
 
@@ -321,178 +100,52 @@ fn render_text(mut node VNode, origin_x int, origin_y int, mut ctx RenderContext
 
 pub fn text(spec NodeSpec) VNode {
 	return VNode{
-		constructor: "text"
-		tag: 	  spec.tag
-		render:   render_text
-		props:    spec.props
-		style:    spec.style
-		events:   spec.events
-		children: spec.children
+		constructor: 'text'
+		tag:         spec.tag
+		render:      render_text
+		props:       spec.props
+		style:       spec.style
+		events:      spec.events
+		children:    spec.children
 	}
 }
 
-// HORIZONTAL layout: lays out children left→right, returns union, optionally registers itself.
-fn render_horizontal(mut node VNode, origin_x int, origin_y int, mut ctx RenderContext) TermRect {
-	mut x := origin_x + node.props.left
-	mut y := origin_y + node.props.top
-	mut combined := TermRect{
-		x:      x
-		y:      y
-		width:  0
-		height: 0
+// RELATIVE: layout container positioning children relative to its origin.
+fn render_relative(mut node VNode, origin_x int, origin_y int, mut ctx RenderContext) TermRect {
+	mut rect := TermRect{
+		x:      origin_x + node.props.left
+		y:      origin_y + node.props.top
+		width:  node.props.width
+		height: node.props.height
+	}
+	if rect.width == 0 {
+		rect.width = ctx.viewport.width
+	}
+	if rect.height == 0 {
+		rect.height = ctx.viewport.height
 	}
 
-	has_focus:=node.has_focus
+	_ = ctx.register(rect, node.style, node.events)
+
+	saved_viewport := ctx.viewport
+	ctx.viewport = rect
+	mut combined := rect
 	for mut child in node.children {
-		child.has_focus=has_focus
-		child_rect := child.render(mut child, x, y, mut ctx)
+		child_rect := child.render(mut child, rect.x, rect.y, mut ctx)
 		combined = union_rect(combined, child_rect)
-		x = child_rect.x + child_rect.width
 	}
-
-	// If you want horizontal container itself to receive events, register it:
-	_ = ctx.register(combined, node.style, node.events)
-
+	ctx.viewport = saved_viewport
 	return combined
 }
 
-pub fn horizontal(spec NodeSpec) VNode {
+pub fn relative(spec NodeSpec) VNode {
 	return VNode{
-		constructor: "horizontal"
-		tag: 	  spec.tag
-		render:   render_horizontal
-		props:    spec.props
-		style:    spec.style
-		events:   spec.events
-		children: spec.children
+		constructor: 'relative'
+		tag:         spec.tag
+		render:      render_relative
+		props:       spec.props
+		style:       spec.style
+		events:      spec.events
+		children:    spec.children
 	}
 }
-
-// VERTICAL layout: children top→bottom.
-fn render_vertical(mut node VNode, origin_x int, origin_y int, mut ctx RenderContext) TermRect {
-	mut x := origin_x + node.props.left
-	mut y := origin_y + node.props.top
-	mut combined := TermRect{
-		x:      x
-		y:      y
-		width:  0
-		height: 0
-	}
-	has_focus:=node.has_focus
-
-	for mut child in node.children {
-		child.has_focus=has_focus
-		child_rect := child.render(mut child, x, y, mut ctx)
-		combined = union_rect(combined, child_rect)
-		y = child_rect.y + child_rect.height
-	}
-	_ = ctx.register(combined, node.style, node.events)
-
-	return combined
-}
-
-pub fn vertical(spec NodeSpec) VNode {
-	return VNode{
-		constructor: "vertical"
-		tag: 	  spec.tag
-		render:   render_vertical
-		props:    spec.props
-		style:    spec.style
-		events:   spec.events
-		children: spec.children
-	}
-}
-
-// HLINE: length from props.width, does NOT grow parent box.
-fn render_hline(mut node VNode, origin_x int, origin_y int, mut ctx RenderContext) TermRect {
-	x := origin_x + node.props.left
-	y := origin_y + node.props.top
-	mut len := node.props.width
-	if len <= 0 {
-		len = ctx.viewport.width
-	}
-	rect := TermRect{
-		x:      x
-		y:      y
-		width:  len
-		height: 1
-	}
-	_ = ctx.register(rect, node.style, node.events)
-
-	mut s := node.style.default
-	has_focus:=node.has_focus || rect.contains_point(x:ctx.mouse.x,y:ctx.mouse.y)
-	if has_focus{
-		s=node.style.focus or {node.style.default}
-	}
-	ctx.tui.set_bg_color(r: s.background.r, g: s.background.g, b: s.background.b)
-	ctx.tui.set_color(r: s.foreground.r, g: s.foreground.g, b: s.foreground.b)
-	ctx.tui.draw_text(rect.x, rect.y, get_symbol(s.line,0))
-	for dx := 1; dx < rect.width-1; dx++ {
-		ctx.tui.draw_text(rect.x + dx, rect.y, get_symbol(s.line,1))
-	}
-	ctx.tui.draw_text(rect.x + rect.width-1, rect.y, get_symbol(s.line,2))
-	ctx.tui.reset()
-
-	// does not grow parent: return empty rect
-	return TermRect{}
-}
-
-pub fn hline(spec NodeSpec) VNode {
-	return VNode{
-		constructor: "hline"
-		tag: 	  spec.tag
-		render:   render_hline
-		props:    spec.props
-		style:    spec.style
-		events:   spec.events
-		children: []VNode{}
-	}
-}
-
-// VLINE: length from props.height, does NOT grow parent box.
-fn render_vline(mut node VNode, origin_x int, origin_y int, mut ctx RenderContext) TermRect {
-	x := origin_x + node.props.left
-	y := origin_y + node.props.top
-	mut len := node.props.height
-	if len <= 0 {
-		len = ctx.viewport.height
-	}
-	rect := TermRect{
-		x:      x
-		y:      y
-		width:  1
-		height: len
-	}
-	_ = ctx.register(rect, node.style, node.events)
-
-	mut s := node.style.default
-	has_focus:=node.has_focus || rect.contains_point(x:ctx.mouse.x,y:ctx.mouse.y)
-	if has_focus{
-		s=node.style.focus or {node.style.default}
-	}
-	ctx.tui.set_bg_color(r: s.background.r, g: s.background.g, b: s.background.b)
-	ctx.tui.set_color(r: s.foreground.r, g: s.foreground.g, b: s.foreground.b)
-	ctx.tui.draw_text(rect.x, rect.y, get_symbol(s.line,3))
-	for dy := 1; dy < rect.height-1; dy++ {
-		ctx.tui.draw_text(rect.x, rect.y + dy, get_symbol(s.line,4))
-	}
-	ctx.tui.draw_text(rect.x, rect.y + rect.height-1, get_symbol(s.line,5))
-	ctx.tui.reset()
-
-	return TermRect{}
-}
-
-pub fn vline(spec NodeSpec) VNode {
-	return VNode{
-		constructor: "vline"
-		tag: 	  spec.tag
-		render:   render_vline
-		props:    spec.props
-		style:    spec.style
-		events:   spec.events
-		children: []VNode{}
-	}
-}
-
-// Scrollbox etc. are just more VNodes with their own render functions that choose
-// which children to call based on scroll state.

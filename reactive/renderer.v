@@ -142,11 +142,11 @@ pub fn (tc TermColor) darker(value u8) TermColor{
 }
 
 pub struct TermStyleState {
-pub:
+pub mut:
 	background TermColor
 	foreground TermColor
-	border string = 'box_light_rounded'
-	line string = 'line_simple_simple'
+	border     string = 'box_light_rounded'
+	line       string = 'line_simple_simple'
 }
 
 pub fn (tss TermStyleState) copy() TermStyleState{
@@ -503,6 +503,7 @@ pub:
 // --------------------- Root view type ---------------------
 
 pub type RootViewFn = fn () VNode
+pub type ViewportHook = fn (TermRect)
 
 // --------------------- Internal app + renderer ---------------------
 
@@ -515,6 +516,8 @@ mut:
 	counter        int
 	exit_code      int
 	exit_next_loop bool
+	viewport_hook  ViewportHook = unsafe { nil }
+	has_viewport_hook bool
 }
 
 pub fn (mut a App) will_exit(code int) {
@@ -562,6 +565,9 @@ fn (mut r Renderer) render_frame() {
 		y:      0
 		width:  width
 		height: height
+	}
+	if r.app.has_viewport_hook {
+		r.app.viewport_hook(r.ctx.viewport)
 	}
 	r.ctx.nodes.clear()
 
@@ -824,6 +830,11 @@ fn (r &Renderer) map_event_kind(e &tui.Event) UiEventKind {
 
 fn event_loop_function(e &tui.Event, user_data voidptr) {
 	mut app := unsafe { &App(user_data) }
+	if e.typ == .key_down && e.code == .escape {
+		app.renderer.ctx.dump_messages_to_file('escape-exit.log') or {}
+		app.will_exit(0)
+		return
+	}
 	if e.typ == .key_down && e.code == .r && e.modifiers.has(.ctrl) && e.modifiers.has(.shift) {
 		app.renderer.ctx.dump_messages_to_file('direct-exit.log') or {}
 		app.will_exit(0)
@@ -863,6 +874,11 @@ pub fn reactive_app(root RootViewFn) &Reactive {
 	return &Reactive{
 		app: app
 	}
+}
+
+pub fn (mut r Reactive) on_viewport_change(handler ViewportHook) {
+	r.app.viewport_hook = handler
+	r.app.has_viewport_hook = true
 }
 
 pub fn (mut r Reactive) run() ! {

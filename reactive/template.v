@@ -219,23 +219,14 @@ fn (mut p TemplateParser) expect(ch u8) {
 
 type TemplateFactory = fn (NodeSpec) VNode
 
-fn container_border_box_factory(spec NodeSpec) VNode {
-	return container_border_box(BorderBoxNodeSpec{
-		NodeSpec: spec
-	})
-}
-
 const template_component_factories = {
-	'box':                  TemplateFactory(box)
-	'box_layout':           TemplateFactory(box)
-	'button':               TemplateFactory(button)
-	'border_box':           TemplateFactory(border_box)
-	'container_border_box': TemplateFactory(container_border_box_factory)
-	'horizontal':           TemplateFactory(horizontal)
-	'vertical':             TemplateFactory(vertical)
-	'hline':                TemplateFactory(hline)
-	'vline':                TemplateFactory(vline)
-	'text':                 TemplateFactory(text)
+	'relative': TemplateFactory(relative)
+	'container': TemplateFactory(relative)
+	'layout':   TemplateFactory(relative)
+	'box_layout': TemplateFactory(relative)
+	'rect':     TemplateFactory(rect)
+	'box':      TemplateFactory(rect)
+	'text':     TemplateFactory(text)
 }
 
 const event_name_map = {
@@ -246,12 +237,13 @@ const event_name_map = {
 	'onmousewheel': 'wheel'
 }
 
+
 pub fn view_from_template(src string, ctx TemplateContext) !VNode {
 	mut parser := new_template_parser(src)
 	mut nodes := parser.parse_all()!
 	mut built := []VNode{}
 	for node in nodes {
-		built << build_template_node(node, ctx)!
+		built << build_template_node(node, ctx, none)!
 	}
 	mut flattened := []VNode{}
 	for node in built {
@@ -267,16 +259,18 @@ pub fn view_from_template(src string, ctx TemplateContext) !VNode {
 	return flattened[0]
 }
 
-fn build_template_node(node TemplateNode, ctx TemplateContext) !VNode {
+
+fn build_template_node(node TemplateNode, ctx TemplateContext, parent_style ?TermStyleSpec) !VNode {
 	if node.is_text {
 		text_value := interpolate_text(node.text, ctx.props).trim_space()
 		if text_value.len == 0 {
 			return empty_vnode()
 		}
+		mut style := parent_style or { default_box_style() }
 		return text(NodeSpec{
-			tag:    'text-node'
-			props:  TermProps{text: text_value}
-			style:  default_box_style()
+			tag:      'text-node'
+			props:    TermProps{text: text_value}
+			style:    style
 			children: []VNode{}
 		})
 	}
@@ -291,11 +285,11 @@ fn build_template_node(node TemplateNode, ctx TemplateContext) !VNode {
 	}
 	style_map := parse_style_map(interpolate_text(node.attrs['style'] or { '' }, ctx.props))
 	mut props := parse_props_from_attributes(node, style_map, ctx)
-	mut style_spec := build_style_spec(style_map)
+	mut style_spec := merge_style_spec(style_map, parent_style)
 	mut events := parse_events_from_attributes(node, ctx)
 	mut children := []VNode{}
 	for child in node.children {
-		child_node := build_template_node(child, ctx)!
+		child_node := build_template_node(child, ctx, style_spec)!
 		if child_node.constructor == '__empty__' {
 			children << child_node.children
 			continue
@@ -425,42 +419,37 @@ fn parse_style_map(raw string) map[string]string {
 	return res
 }
 
-fn build_style_spec(style_map map[string]string) TermStyleSpec {
-	base := default_box_style()
-	mut background := base.default.background
-	mut foreground := base.default.foreground
-	mut border := base.default.border
-	mut line := base.default.line
+fn merge_style_spec(style_map map[string]string, parent_style ?TermStyleSpec) TermStyleSpec {
+	mut base_spec := parent_style or { default_box_style() }
+	if style_map.len == 0 {
+		return base_spec
+	}
+	mut base_state := base_spec.default.copy()
 	if v := style_map['bg'] {
 		if c := parse_color(v) {
-			background = c
+			base_state.background = c
 		}
 	} else if v := style_map['background'] {
 		if c := parse_color(v) {
-			background = c
+			base_state.background = c
 		}
 	}
 	if v := style_map['fg'] {
 		if c := parse_color(v) {
-			foreground = c
+			base_state.foreground = c
 		}
 	} else if v := style_map['foreground'] {
 		if c := parse_color(v) {
-			foreground = c
+			base_state.foreground = c
 		}
 	}
 	if v := style_map['border'] {
-		border = v
+		base_state.border = v
 	}
 	if v := style_map['line'] {
-		line = v
+		base_state.line = v
 	}
-	return make_stylesheet(
-		background: background
-		foreground: foreground
-		border: border
-		line: line
-	)
+	return make_stylesheet(base_state)
 }
 
 fn parse_color(value string) ?TermColor {
@@ -526,3 +515,5 @@ fn index_after(s string, substr string, start int) int {
 	}
 	return -1
 }
+
+// no instantiate_component helper any more; templates directly expand to primitives.
