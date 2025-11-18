@@ -110,12 +110,16 @@ fn build_file_list_markup(mut state LayoutState, left_width int, main_height int
 		bg := if idx == state.selected_idx { "#2f3e5c" } else { "#1f2736" }
 		file_idx := idx
 		file_name := name
+		node_tag := "file-${file_idx}"
 		handler_name := "file_select_${file_idx}"
-		handlers[handler_name] = fn [mut state, file_idx, file_name] (mut _ reactive.UiEvent) {
+		handlers[handler_name] = fn [mut state, file_idx, file_name, node_tag] (mut e reactive.UiEvent) {
+			if e.target_tag != node_tag {
+				return
+			}
 			state.selected_idx = file_idx
 			state.file_lines = read_file_preview(file_name)
 		}
-		b.write_string("\n\t\t\t<text tag=\"file-${idx}\" onclick={" + handler_name + "} style=\"top:${line_top};left:2;width:${entry_width};height:1;fg:${fg};bg:${bg}\">")
+		b.write_string("\n\t\t\t<text tag=\"${node_tag}\" onclick={" + handler_name + "} style=\"top:${line_top};left:2;width:${entry_width};height:1;fg:${fg};bg:${bg}\">")
 	b.write_string(title)
 	b.write_string("</text>")
 		row++
@@ -268,20 +272,23 @@ fn build_layout_view(mut state LayoutState) reactive.VNode {
 	mut handlers := map[string]reactive.UiEventHandler{}
 	handlers['start_resize'] = fn [mut state] (mut e reactive.UiEvent) {
 		track_pointer(mut state, mut e)
-		if e.target_tag != 'divider' {
-			return
+		if e.target_tag == 'divider' {
+			state.resizing = true
+			update_resize(mut state, mut e, true)
 		}
-		state.resizing = true
-		update_resize(mut state, mut e, true)
 	}
 	handlers['resize_tracker'] = fn [mut state] (mut e reactive.UiEvent) {
-		track_pointer(mut state, mut e)
-		update_resize(mut state, mut e, false)
+		if state.resizing {
+			track_pointer(mut state, mut e)
+			update_resize(mut state, mut e, false)
+		}
 	}
 	handlers['stop_resize'] = fn [mut state] (mut e reactive.UiEvent) {
-		track_pointer(mut state, mut e)
-		state.resizing = false
-		update_resize(mut state, mut e, true)
+		if state.resizing {
+			track_pointer(mut state, mut e)
+			state.resizing = false
+			update_resize(mut state, mut e, true)
+		}
 	}
 	left_panel_view := file_list_component(mut state, left_width, main_height)
 	work_panel_view := file_content_component(state, work_width, main_height)
