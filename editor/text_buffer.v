@@ -318,16 +318,6 @@ pub fn (b TextBuffer) viewport_slice(view EditorViewport) ViewportSlice {
 	}
 }
 
-fn append_segment(mut segments []ViewSegment, text string, selected bool) {
-	if text.len == 0 {
-		return
-	}
-	segments << ViewSegment{
-		text: text
-		selected: selected
-	}
-}
-
 fn (b TextBuffer) build_segments(line_idx int, view_x int, view_width int) []ViewSegment {
 	mut width := view_width
 	if width <= 0 {
@@ -344,22 +334,27 @@ fn (b TextBuffer) build_segments(line_idx int, view_x int, view_width int) []Vie
 	mut has_segment := false
 	for rel_col in 0 .. width {
 		actual_col := view_x + rel_col
-		if caret_line && caret_col == actual_col {
-			if has_segment {
-				append_segment(mut segments, current_text, current_selected)
-				current_text = ''
-				has_segment = false
-			}
-			segments << ViewSegment{
-				text: '▏'
-				cursor: true
-			}
-		}
+		cursor_here := caret_line && caret_col == actual_col
 		mut ch := ' '
 		if actual_col < runes.len {
 			ch = runes[actual_col].str()
 		}
 		selected := selection.intersects(actual_col)
+		if cursor_here {
+			if has_segment && current_text.len > 0 {
+				segments << ViewSegment{
+					text: current_text
+					selected: current_selected
+				}
+				current_text = ''
+				has_segment = false
+			}
+			segments << ViewSegment{
+				text: ch
+				cursor: true
+			}
+			continue
+		}
 		if !has_segment {
 			has_segment = true
 			current_selected = selected
@@ -367,19 +362,27 @@ fn (b TextBuffer) build_segments(line_idx int, view_x int, view_width int) []Vie
 			continue
 		}
 		if selected != current_selected {
-			append_segment(mut segments, current_text, current_selected)
-			current_text = ch
+			if current_text.len > 0 {
+				segments << ViewSegment{
+					text: current_text
+					selected: current_selected
+				}
+			}
 			current_selected = selected
+			current_text = ch
 			continue
 		}
 		current_text += ch
 	}
-	if has_segment {
-		append_segment(mut segments, current_text, current_selected)
+	if has_segment && current_text.len > 0 {
+		segments << ViewSegment{
+			text: current_text
+			selected: current_selected
+		}
 	}
 	if caret_line && caret_col == view_x + width {
 		segments << ViewSegment{
-			text: '▏'
+			text: ' '
 			cursor: true
 		}
 	}
