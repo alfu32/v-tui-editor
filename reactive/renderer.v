@@ -140,6 +140,23 @@ pub fn (tc TermColor) darker(value u8) TermColor{
 		b: darkeru8(tc.b,value)
 	}
 }
+pub fn (tc TermColor) alter(value i8) TermColor{
+	if value<0{
+		return TermColor{
+			r: darkeru8(tc.r,u8(-value))
+			g: darkeru8(tc.g,u8(-value))
+			b: darkeru8(tc.b,u8(-value))
+		}
+	}else if value>0 {
+		return TermColor{
+			r: lighteru8(tc.r,u8(value))
+			g: lighteru8(tc.g,u8(value))
+			b: lighteru8(tc.b,u8(value))
+		}
+	} else {
+		return tc.copy()
+	}
+}
 
 pub struct TermStyleState {
 pub mut:
@@ -157,6 +174,22 @@ pub fn (tss TermStyleState) copy() TermStyleState{
 		line: tss.line+""
 	}
 }
+pub fn (tss TermStyleState) alter(value i8) TermStyleState{
+	return TermStyleState{
+		background: tss.background.copy().alter(value)
+		foreground: tss.foreground.copy().alter(value)
+		border: tss.border+""
+		line: tss.line+""
+	}
+}
+pub fn (tss TermStyleState) alter_color(value i8) TermStyleState{
+	return TermStyleState{
+		background: tss.background.copy()
+		foreground: tss.foreground.copy().alter(value)
+		border: tss.border+""
+		line: tss.line+""
+	}
+}
 
 pub struct TermStyleSpec {
 pub:
@@ -169,6 +202,19 @@ pub fn (tss TermStyleSpec) copy() TermStyleSpec{
 		default: tss.default.copy()
 		hover: tss.hover or {tss.default}.copy()
 		focus: tss.focus or {tss.default}.copy()
+	}
+}
+pub fn (tss TermStyleSpec) alter(value i8) TermStyleSpec{
+	return TermStyleSpec{
+		default: tss.default.copy().alter(value)
+		hover: tss.hover or {tss.default}.copy().alter(value)
+		focus: tss.focus or {tss.default}.copy().alter(value)
+	}
+}pub fn (tss TermStyleSpec) alter_color(value i8) TermStyleSpec{
+	return TermStyleSpec{
+		default: tss.default.copy().alter_color(value)
+		hover: tss.hover or {tss.default}.copy().alter_color(value)
+		focus: tss.focus or {tss.default}.copy().alter_color(value)
 	}
 }
 
@@ -796,9 +842,9 @@ fn (mut r Renderer) update_raw_input(e &tui.Event) {
 	// r.ctx.viewport.width = e.width
 	// r.ctx.viewport.height = e.height
 	if e.direction == .up {
-		r.last_mouse.wheel = -1
-	} else if e.direction == .down {
 		r.last_mouse.wheel = 1
+	} else if e.direction == .down {
+		r.last_mouse.wheel = -1
 	} else {
 		r.last_mouse.wheel = 0
 	}
@@ -814,9 +860,9 @@ fn (mut r Renderer) update_raw_input(e &tui.Event) {
 		}
 		.mouse_scroll {
 			if e.direction == .up {
-				r.last_mouse.wheel = -1
-			} else if e.direction == .down {
 				r.last_mouse.wheel = 1
+			} else if e.direction == .down {
+				r.last_mouse.wheel = -1
 			} else {
 				r.last_mouse.wheel = 0
 			}

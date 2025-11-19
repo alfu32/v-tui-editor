@@ -688,47 +688,6 @@ fn handle_root_event(mut state LayoutState, mut e reactive.UiEvent) {
 	}
 }
 
-fn build_top_title_node(state LayoutState) reactive.VNode {
-	mut title := 'V Reactive Workspace'
-	if state.selected_file.len > 0 {
-		title += ' - ${state.selected_file}'
-	} else if !isnil(state.tree) {
-		title += ' - ${state.tree.root}'
-	}
-	return reactive.text(reactive.NodeSpec{
-		tag:   'top-title'
-		props: reactive.TermProps{
-			top:  1
-			left: 2
-			text: title
-		}
-		style: top_bar_text_style()
-	})
-}
-
-fn build_close_button(mut state LayoutState, viewport_width int) reactive.VNode {
-	mut left := viewport_width - 5
-	if left < 2 {
-		left = 2
-	}
-	return reactive.text(reactive.NodeSpec{
-		tag:    'top-close'
-		props:  reactive.TermProps{
-			top:  1
-			left: left
-			text: '[X]'
-		}
-		style:  close_button_style()
-		events: [
-			fn [mut state] (mut e reactive.UiEvent) {
-				if e.kind == .mouse_down {
-					e.renderer.app.will_exit(0)
-				}
-			},
-		]
-	})
-}
-
 fn tree_panel_event_handler(mut state LayoutState) reactive.UiEventHandler {
 	return fn [mut state] (mut e reactive.UiEvent) {
 		if state.prompt.active {
@@ -740,7 +699,7 @@ fn tree_panel_event_handler(mut state LayoutState) reactive.UiEventHandler {
 				y: e.mouse.y
 			})
 			{
-				adjust_tree_scroll(mut state, e.mouse.wheel)
+				adjust_tree_scroll(mut state, -4*e.mouse.wheel)
 			}
 		}
 		if e.kind == .key_down {
@@ -768,7 +727,7 @@ fn open_panel_event_handler(mut state LayoutState) reactive.UiEventHandler {
 				y: e.mouse.y
 			})
 			{
-				adjust_open_scroll(mut state, e.mouse.wheel)
+				adjust_open_scroll(mut state, -3*e.mouse.wheel)
 			}
 		}
 		if e.kind == .key_down {
@@ -969,24 +928,6 @@ fn editor_cursor_style() reactive.TermStyleSpec {
 	)
 }
 
-fn top_bar_text_style() reactive.TermStyleSpec {
-	return reactive.make_stylesheet(
-		background: reactive.TermColor{43, 52, 77}
-		foreground: reactive.TermColor{240, 240, 240}
-		border:     'empty'
-		line:       'empty'
-	)
-}
-
-fn close_button_style() reactive.TermStyleSpec {
-	return reactive.make_stylesheet(
-		background: reactive.TermColor{43, 52, 77}
-		foreground: reactive.TermColor{255, 143, 143}
-		border:     'empty'
-		line:       'empty'
-	)
-}
-
 fn refresh_file_entries(mut state LayoutState) {
 	if isnil(state.tree) {
 		return
@@ -999,9 +940,9 @@ pub const spaces = [` `, `\t`, `\n`, `\r`, `\v`, `\f`]
 fn build_editor_view(mut state LayoutState, width int, height int, work_left int, main_top int) reactive.VNode {
 	state.editor_rect = reactive.TermRect{
 		x:      work_left
-		y:      main_top
+		y:      main_top+1
 		width:  width
-		height: height
+		height: height+1
 	}
 	if isnil(state.buffer) {
 		state.buffer = editor.new_text_buffer()
@@ -1019,7 +960,7 @@ fn build_editor_view(mut state LayoutState, width int, height int, work_left int
 		x:      state.editor_view_x
 		y:      state.editor_view_y
 		width:  content_width
-		height: height
+		height: height+1
 	}
 	slice := state.buffer.viewport_slice(viewport)
 	mut children := []reactive.VNode{}
@@ -1030,6 +971,8 @@ fn build_editor_view(mut state LayoutState, width int, height int, work_left int
 		}
 		style: editor_background_style()
 	})
+	mut free_space_begin := 1
+	mut last_text := "0"
 	for idx, line in slice.lines {
 		mut left := 0
 		children << reactive.text(reactive.NodeSpec{
@@ -1060,6 +1003,24 @@ fn build_editor_view(mut state LayoutState, width int, height int, work_left int
 			})
 			left += seg.text.len
 		}
+		free_space_begin+=1
+		last_text=line.gutter
+	}
+	mut last_line_num:=last_text.trim(" ").int()+1
+	for free_space_begin <= (height+1)  {
+		mut left := 0
+		children << reactive.text(reactive.NodeSpec{
+			tag:   'editor-gutter'
+			props: reactive.TermProps{
+				top:  free_space_begin-1
+				left: left
+				text: "  ${last_line_num:4}  "
+				/// text: "        "
+			}
+			style: editor_gutter_background_style().alter_color(-60)
+		})
+		free_space_begin+=1
+		last_line_num+=1
 	}
 
 	if cursor := slice.cursor {
@@ -1129,7 +1090,7 @@ fn handle_editor_event(mut state LayoutState, width int, height int, work_left i
 	if e.kind == .mouse_move {
 		if e.mouse.wheel != 0 && editor_hit_test(state.editor_rect, e.mouse.x, e.mouse.y) {
 			state.editor_follow_cursor = false
-			state.editor_view_y += e.mouse.wheel
+			state.editor_view_y -= 3*e.mouse.wheel
 			clamp_editor_view(mut state, width, height)
 		}
 		if state.editor_dragging && e.mouse.buttons.left {
@@ -1455,11 +1416,7 @@ fn file_list_component(mut state LayoutState, left_width int, main_height int) r
 
 const layout_template = r'
 <relative tag="root" style="width:{{viewport_width}};height:{{viewport_height}};bg:#181c20" onmousemove={resize_tracker} onmouseup={stop_resize}>
-	<rect tag="top-bar" style="width:{{viewport_width}};height:{{top_bar_height}};bg:#2b344d">
-		<slot name="top_title"/>
-		<slot name="top_controls"/>
-	</rect>
-	<rect tag="status-bar" style="top:{{status_top}};width:{{viewport_width}};height:{{status_height}};bg:#222730">
+	<rect tag="status-bar" style="left:0;top:{{status_top}};width:{{viewport_width}};height:{{status_height}};bg:#222730">
 		<text style="top:1;left:2;fg:#c0c0c0">{{status_text}}</text>
 	</rect>
 	<relative tag="main" style="top:{{main_top}};width:{{viewport_width}};height:{{main_height}}">
@@ -1472,11 +1429,15 @@ const layout_template = r'
 				<slot name="file_tree"/>
 			</relative>
 		</rect>
-		<rect tag="divider" style="left:{{divider_left}};width:{{divider_width}};height:{{main_height}};bg:#4a5368" onmousedown={start_resize} />
+		<rect tag="divider" style="left:{{divider_left}};width:{{divider_width}};height:{{divider_height}};bg:#4a5368" onmousedown={start_resize} />
 		<rect tag="work" style="left:{{work_left}};width:{{work_width}};height:{{main_height}};bg:#101820">
 			<slot name="work_panel"/>
 		</rect>
 	</relative>
+	<rect tag="top-bar" style="width:{{viewport_width}};height:{{top_bar_height}};bg:#2b344d">
+		<text style="top:2;left:1;fg:#f0f0f0">{{title_text}}</text>
+		<text tag="close-btn" onclick={close_app} style="top:2;left:{{close_left}};fg:#ff8f8f">[X]</text>
+	</rect>
 </relative>
 '.trim_indent()
 
@@ -1540,20 +1501,21 @@ fn build_layout_view(mut state LayoutState) reactive.VNode {
 		height: tree_panel_height
 	}
 	mut props := map[string]string{}
-	props['viewport_width'] = itos(viewport_width)
+	props['viewport_width'] = itos(viewport_width-1)
 	props['viewport_height'] = itos(viewport_height)
 	props['top_bar_height'] = itos(top_bar_height)
 	props['status_height'] = itos(status_bar_height)
-	props['status_top'] = itos(status_top)
-	props['main_top'] = itos(top_bar_height)
-	props['main_height'] = itos(main_height)
+	props['status_top'] = itos(status_top+1)
+	props['main_top'] = itos(top_bar_height+1)
+	props['divider_height'] = itos(main_height)
+	props['main_height'] = itos(main_height-1)
 	props['left_width'] = itos(left_width)
 	props['divider_left'] = itos(left_width)
 	props['divider_width'] = itos(divider_width)
 	props['work_left'] = itos(work_left)
 	props['work_width'] = itos(work_width)
-	props['open_panel_height'] = itos(open_panel_height)
-	props['open_panel_height_plus_one'] = itos(open_panel_height + 1)
+	props['open_panel_height'] = itos(open_panel_height-1)
+	props['open_panel_height_plus_one'] = itos(open_panel_height)
 	props['tree_panel_height'] = itos(tree_panel_height)
 	status_hover := if state.hover_tag.len > 0 { state.hover_tag } else { 'none' }
 	mut status_line := 'Panel ${left_width}px | Editor ${work_width}px | Mouse ${state.mouse_x},${state.mouse_y} | Hover ${status_hover}'
@@ -1561,6 +1523,18 @@ fn build_layout_view(mut state LayoutState) reactive.VNode {
 		status_line += ' | ${state.status_message}'
 	}
 	props['status_text'] = escape_text(status_line)
+	mut title := 'V Reactive Workspace'
+	if state.selected_file.len > 0 {
+		title += ' - ${state.selected_file}'
+	} else if !isnil(state.tree) {
+		title += ' - ${state.tree.root}'
+	}
+	mut close_left := viewport_width - 5
+	if close_left < 2 {
+		close_left = 2
+	}
+	props['title_text'] = escape_text(title)
+	props['close_left'] = itos(close_left)
 	mut handlers := map[string]reactive.UiEventHandler{}
 	handlers['start_resize'] = fn [mut state] (mut e reactive.UiEvent) {
 		track_pointer(mut state, mut e)
@@ -1597,6 +1571,11 @@ fn build_layout_view(mut state LayoutState) reactive.VNode {
 			state.resizing_left_split = false
 		}
 	}
+	handlers['close_app'] = fn [mut state] (mut e reactive.UiEvent) {
+		if e.kind == .mouse_down {
+			e.renderer.app.will_exit(0)
+		}
+	}
 	open_panel_view := open_files_component(mut state, left_width, open_panel_height)
 	file_tree_view := file_list_component(mut state, left_width, tree_panel_height)
 	work_panel_view := build_editor_view(mut state, work_width, main_height, work_left,
@@ -1605,8 +1584,8 @@ fn build_layout_view(mut state LayoutState) reactive.VNode {
 	named_children['open_files'] = [open_panel_view]
 	named_children['file_tree'] = [file_tree_view]
 	named_children['work_panel'] = [work_panel_view]
-	named_children['top_title'] = [build_top_title_node(state)]
-	named_children['top_controls'] = [build_close_button(mut state, viewport_width)]
+	// named_children['top_title'] = [build_top_title_node(state)]
+	// named_children['top_controls'] = [build_close_button(mut state, viewport_width)]
 	ctx := reactive.TemplateContext{
 		props:          props
 		handlers:       handlers
