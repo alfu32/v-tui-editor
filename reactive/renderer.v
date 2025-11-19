@@ -15,26 +15,23 @@ pub type GlyphSetMap = map[string]string
 // All glyph sets.
 // Boxes: 8 chars, indices 0..7
 // Lines: 3 chars, indices 0..2
-	pub const glyph_sets = {
-		// boxes
-		'empty':                '        '
-		'box_light_straight':   '┌─┐│┘─└│'
-		'box_heavy_straight':   '┏━┓┃┛━┗┃'
-		'box_double_straight':  '╔═╗║╝═╚║'
-		'box_light_rounded':    '╭─╮│╯─╰│'
-
-		// lines (─)
-		'line_simple_simple':    '├─┤┬│┴'
-		'line_double_simple':    '╟─╢╤│╧'
-		'line_double_double':    '╠═╣╦║╩'
-	}
+pub const glyph_sets = {
+	// boxes
+	'empty':               '        '
+	'box_light_straight':  '┌─┐│┘─└│'
+	'box_heavy_straight':  '┏━┓┃┛━┗┃'
+	'box_double_straight': '╔═╗║╝═╚║'
+	'box_light_rounded':   '╭─╮│╯─╰│'
+	// lines (─)
+	'line_simple_simple':  '├─┤┬│┴'
+	'line_double_simple':  '╟─╢╤│╧'
+	'line_double_double':  '╠═╣╦║╩'
+}
 
 // Get the rune at `index` in the named glyph set.
 // Returns '?' if the set or index is invalid.
 pub fn get_symbol(set_name GlyphSetName, index int) string {
-	s := glyph_sets[set_name] or {
-		return '?'
-	}
+	s := glyph_sets[set_name] or { return '?' }
 	rs := s.runes()
 	if index < 0 || index >= rs.len {
 		return '?'
@@ -45,10 +42,11 @@ pub fn get_symbol(set_name GlyphSetName, index int) string {
 // --------------------- Geometry & styling ---------------------
 
 pub struct TermPoint {
-	pub mut:
-	x      int
-	y      int
+pub mut:
+	x int
+	y int
 }
+
 pub struct TermRect {
 pub mut:
 	x      int
@@ -72,7 +70,7 @@ pub fn (r TermRect) contains_point(p TermPoint) bool {
 }
 
 pub fn (r TermRect) is_empty() bool {
-	return r.width == 0 && r.height == 0
+	return r.width <= 0 || r.height <= 0
 }
 
 pub fn (a TermRect) add(b TermRect) TermRect {
@@ -109,49 +107,55 @@ pub:
 	g u8
 	b u8
 }
-pub fn (tc TermColor) copy() TermColor{
+
+pub fn (tc TermColor) copy() TermColor {
 	return TermColor{
 		r: tc.r
 		g: tc.g
 		b: tc.b
 	}
 }
-fn lighteru8(a u8,value u8) u8 {
-	rma := f64(255-a)
-	add:=rma*f64(value)/f64(100)
-	return u8(a+add)
+
+fn lighteru8(a u8, value u8) u8 {
+	rma := f64(255 - a)
+	add := rma * f64(value) / f64(100)
+	return u8(a + add)
 }
-fn darkeru8(a u8,value u8) u8 {
+
+fn darkeru8(a u8, value u8) u8 {
 	rma := f64(a)
-	sub:=rma*f64(value)/f64(100)
-	return u8(a-sub)
+	sub := rma * f64(value) / f64(100)
+	return u8(a - sub)
 }
-pub fn (tc TermColor) lighter(value u8) TermColor{
+
+pub fn (tc TermColor) lighter(value u8) TermColor {
 	return TermColor{
-		r: lighteru8(tc.r,value)
-		g: lighteru8(tc.g,value)
-		b: lighteru8(tc.b,value)
+		r: lighteru8(tc.r, value)
+		g: lighteru8(tc.g, value)
+		b: lighteru8(tc.b, value)
 	}
 }
-pub fn (tc TermColor) darker(value u8) TermColor{
+
+pub fn (tc TermColor) darker(value u8) TermColor {
 	return TermColor{
-		r: darkeru8(tc.r,value)
-		g: darkeru8(tc.g,value)
-		b: darkeru8(tc.b,value)
+		r: darkeru8(tc.r, value)
+		g: darkeru8(tc.g, value)
+		b: darkeru8(tc.b, value)
 	}
 }
-pub fn (tc TermColor) alter(value i8) TermColor{
-	if value<0{
+
+pub fn (tc TermColor) alter(value i8) TermColor {
+	if value < 0 {
 		return TermColor{
-			r: darkeru8(tc.r,u8(-value))
-			g: darkeru8(tc.g,u8(-value))
-			b: darkeru8(tc.b,u8(-value))
+			r: darkeru8(tc.r, u8(-value))
+			g: darkeru8(tc.g, u8(-value))
+			b: darkeru8(tc.b, u8(-value))
 		}
-	}else if value>0 {
+	} else if value > 0 {
 		return TermColor{
-			r: lighteru8(tc.r,u8(value))
-			g: lighteru8(tc.g,u8(value))
-			b: lighteru8(tc.b,u8(value))
+			r: lighteru8(tc.r, u8(value))
+			g: lighteru8(tc.g, u8(value))
+			b: lighteru8(tc.b, u8(value))
 		}
 	} else {
 		return tc.copy()
@@ -166,28 +170,30 @@ pub mut:
 	line       string = 'line_simple_simple'
 }
 
-pub fn (tss TermStyleState) copy() TermStyleState{
+pub fn (tss TermStyleState) copy() TermStyleState {
 	return TermStyleState{
 		background: tss.background.copy()
 		foreground: tss.foreground.copy()
-		border: tss.border+""
-		line: tss.line+""
+		border:     tss.border + ''
+		line:       tss.line + ''
 	}
 }
-pub fn (tss TermStyleState) alter(value i8) TermStyleState{
+
+pub fn (tss TermStyleState) alter(value i8) TermStyleState {
 	return TermStyleState{
 		background: tss.background.copy().alter(value)
 		foreground: tss.foreground.copy().alter(value)
-		border: tss.border+""
-		line: tss.line+""
+		border:     tss.border + ''
+		line:       tss.line + ''
 	}
 }
-pub fn (tss TermStyleState) alter_color(value i8) TermStyleState{
+
+pub fn (tss TermStyleState) alter_color(value i8) TermStyleState {
 	return TermStyleState{
 		background: tss.background.copy()
 		foreground: tss.foreground.copy().alter(value)
-		border: tss.border+""
-		line: tss.line+""
+		border:     tss.border + ''
+		line:       tss.line + ''
 	}
 }
 
@@ -195,26 +201,30 @@ pub struct TermStyleSpec {
 pub:
 	default TermStyleState
 	hover   ?TermStyleState
-    focus   ?TermStyleState
+	focus   ?TermStyleState
 }
-pub fn (tss TermStyleSpec) copy() TermStyleSpec{
+
+pub fn (tss TermStyleSpec) copy() TermStyleSpec {
 	return TermStyleSpec{
 		default: tss.default.copy()
-		hover: tss.hover or {tss.default}.copy()
-		focus: tss.focus or {tss.default}.copy()
+		hover:   tss.hover or { tss.default }.copy()
+		focus:   tss.focus or { tss.default }.copy()
 	}
 }
-pub fn (tss TermStyleSpec) alter(value i8) TermStyleSpec{
+
+pub fn (tss TermStyleSpec) alter(value i8) TermStyleSpec {
 	return TermStyleSpec{
 		default: tss.default.copy().alter(value)
-		hover: tss.hover or {tss.default}.copy().alter(value)
-		focus: tss.focus or {tss.default}.copy().alter(value)
+		hover:   tss.hover or { tss.default }.copy().alter(value)
+		focus:   tss.focus or { tss.default }.copy().alter(value)
 	}
-}pub fn (tss TermStyleSpec) alter_color(value i8) TermStyleSpec{
+}
+
+pub fn (tss TermStyleSpec) alter_color(value i8) TermStyleSpec {
 	return TermStyleSpec{
 		default: tss.default.copy().alter_color(value)
-		hover: tss.hover or {tss.default}.copy().alter_color(value)
-		focus: tss.focus or {tss.default}.copy().alter_color(value)
+		hover:   tss.hover or { tss.default }.copy().alter_color(value)
+		focus:   tss.focus or { tss.default }.copy().alter_color(value)
 	}
 }
 
@@ -223,29 +233,30 @@ pub fn make_stylesheet(base_spec TermStyleState) TermStyleSpec {
 		default: TermStyleState{
 			background: base_spec.background
 			foreground: base_spec.foreground.darker(30)
-			border: base_spec.border
-			line: base_spec.line
+			border:     base_spec.border
+			line:       base_spec.line
 		}
 		hover:   TermStyleState{
 			background: base_spec.background.lighter(30)
 			foreground: base_spec.foreground.lighter(30)
-			border: base_spec.border
-			line: base_spec.line
+			border:     base_spec.border
+			line:       base_spec.line
 		}
 		focus:   TermStyleState{
 			background: base_spec.background
 			foreground: base_spec.foreground.darker(10)
-			border: base_spec.border
-			line: base_spec.line
+			border:     base_spec.border
+			line:       base_spec.line
 		}
 	}
 }
+
 pub fn default_box_style() TermStyleSpec {
 	return make_stylesheet(
-			background: TermColor{32, 32, 32}
-			foreground: TermColor{192, 192, 192}
-			border: 'box_light_rounded'
-			line: 'line_simple_simple'
+		background: TermColor{32, 32, 32}
+		foreground: TermColor{192, 192, 192}
+		border:     'box_light_rounded'
+		line:       'line_simple_simple'
 	)
 }
 
@@ -272,27 +283,43 @@ pub mut:
 	shift bool
 	meta  bool
 }
+
 pub fn (ks KeyState) str() string {
-	mut mods:=0
-	if ks.shift {mods|=8}
-	if ks.ctrl {mods|=4}
-	if ks.meta {mods|=2}
-	if ks.alt {mods|=1}
-	return "KeyState{code:0x${ks.code:02X},num:0x${ks.num:02X},char:${ks.char},mods:b${mods:04b}}"
+	mut mods := 0
+	if ks.shift {
+		mods |= 8
+	}
+	if ks.ctrl {
+		mods |= 4
+	}
+	if ks.meta {
+		mods |= 2
+	}
+	if ks.alt {
+		mods |= 1
+	}
+	return 'KeyState{code:0x${ks.code:02X},num:0x${ks.num:02X},char:${ks.char},mods:b${mods:04b}}'
 }
 
 pub struct MouseButtons {
-	pub mut:
+pub mut:
 	left   bool
 	middle bool
 	right  bool
 }
+
 pub fn (mb MouseButtons) str() string {
-	mut mods:=0
-	if mb.left {mods|=4}
-	if mb.middle {mods|=2}
-	if mb.right {mods|=1}
-	return "MouseButtons{b${mods:03b}}"
+	mut mods := 0
+	if mb.left {
+		mods |= 4
+	}
+	if mb.middle {
+		mods |= 2
+	}
+	if mb.right {
+		mods |= 1
+	}
+	return 'MouseButtons{b${mods:03b}}'
 }
 
 pub struct MouseState {
@@ -302,29 +329,31 @@ pub mut:
 	buttons MouseButtons
 	wheel   int
 }
+
 pub fn (ms MouseState) str() string {
-	return "MouseState{x:${ms.x},y:${ms.y},buttons:${ms.buttons},wheel:${ms.wheel}}"
+	return 'MouseState{x:${ms.x},y:${ms.y},buttons:${ms.buttons},wheel:${ms.wheel}}'
 }
 
 pub struct UiEvent {
 pub mut:
-	kind        UiEventKind
-	target      int
-	path        []int
-	key         KeyState
-	mouse       MouseState
-	renderer        Renderer
-	target_tag  string
-	propagate   bool = true
+	kind       UiEventKind
+	target     int
+	path       []int
+	key        KeyState
+	mouse      MouseState
+	renderer   Renderer
+	target_tag string
+	propagate  bool = true
 }
+
 pub fn (ev UiEvent) str() string {
-	return "
+	return '
 	UiEvent{
 	kind:${ev.kind}, target:${ev.target}, target_tag:${ev.target_tag}, path:${ev.path},
 	key:${ev.key},
 	mouse:${ev.mouse},
 	renderer:[Circular], propagate:${ev.propagate} }
-	".trim_indent()
+	'.trim_indent()
 }
 
 pub type UiEventHandler = fn (mut UiEvent)
@@ -499,18 +528,19 @@ pub mut:
 	tui      &tui.Context = unsafe { nil }
 	viewport TermRect
 	nodes    []RenderedNode
-	mouse       MouseState    // last mouse position
+	mouse    MouseState // last mouse position
 	messages []string
 }
-pub fn (mut ctx RenderContext) dump_messages_to_file(filename string)  ! {
+
+pub fn (mut ctx RenderContext) dump_messages_to_file(filename string) ! {
 	os.write_lines(filename, ctx.messages)!
 }
-pub fn (mut ctx RenderContext) log(message string,file_file string) {
-	tm:=time.now()
-	ctx.messages << "${tm} [${file_file.replace('/home/devlin/Development/','')}] ${message}"
-	ctx.dump_messages_to_file("log.log") or {}
-}
 
+pub fn (mut ctx RenderContext) log(message string, file_file string) {
+	tm := time.now()
+	ctx.messages << '${tm} [${file_file.replace('/home/devlin/Development/', '')}] ${message}'
+	ctx.dump_messages_to_file('log.log') or {}
+}
 
 pub fn (mut ctx RenderContext) register(rect TermRect, style TermStyleSpec, events []UiEventHandler, tag string) int {
 	id := ctx.nodes.len
@@ -519,7 +549,7 @@ pub fn (mut ctx RenderContext) register(rect TermRect, style TermStyleSpec, even
 		rect:   rect
 		style:  style
 		events: events
-		tag:    if tag.len > 0 { tag } else { "node-${id}" }
+		tag:    if tag.len > 0 { tag } else { 'node-${id}' }
 	}
 	return id
 }
@@ -537,12 +567,12 @@ pub mut:
 	style       TermStyleSpec
 	events      []UiEventHandler
 	children    []VNode
-	has_focus 	bool
+	has_focus   bool
 }
 
 pub struct NodeSpec {
 pub:
-	tag 	 string
+	tag      string
 	props    TermProps        = TermProps{}
 	style    TermStyleSpec    = default_box_style()
 	events   []UiEventHandler = []UiEventHandler{}
@@ -552,6 +582,7 @@ pub:
 // --------------------- Root view type ---------------------
 
 pub type RootViewFn = fn () VNode
+
 pub type ViewportHook = fn (TermRect)
 
 // --------------------- Internal app + renderer ---------------------
@@ -559,13 +590,13 @@ pub type ViewportHook = fn (TermRect)
 @[heap]
 struct App {
 mut:
-	tui            &tui.Context = unsafe { nil }
-	root_fn        RootViewFn   = unsafe { nil }
-	renderer       &Renderer    = unsafe { nil }
-	counter        int
-	exit_code      int
-	exit_next_loop bool
-	viewport_hook  ViewportHook = unsafe { nil }
+	tui               &tui.Context = unsafe { nil }
+	root_fn           RootViewFn   = unsafe { nil }
+	renderer          &Renderer    = unsafe { nil }
+	counter           int
+	exit_code         int
+	exit_next_loop    bool
+	viewport_hook     ViewportHook = unsafe { nil }
 	has_viewport_hook bool
 }
 
@@ -623,14 +654,10 @@ fn (mut r Renderer) render_frame() {
 	mut root := r.app.root_fn()
 
 	// 1) register root as a full-viewport node
-	root_id := r.ctx.register(
-		r.ctx.viewport,
-		default_box_style(),
-		root.events, // or root.style + handlers, depending on your RenderedNode
-		if root.tag.len > 0 { root.tag } else { "root" },
-	)
+	root_id := r.ctx.register(r.ctx.viewport, default_box_style(), root.events, // or root.style + handlers, depending on your RenderedNode
+	 if root.tag.len > 0 { root.tag } else { 'root' })
 	_ = root_id
-	r.ctx.log('registered root_id ${root_id}',@LOCATION)
+	r.ctx.log('registered root_id ${root_id}', @LOCATION)
 
 	_ = root.render(mut root, 0, 0, mut r.ctx)
 
@@ -646,7 +673,7 @@ fn (mut r Renderer) handle_tui_event(e &tui.Event) {
 		// r.ctx.log('handle mouse event ${kind}',@LOCATION)
 		r.handle_mouse_event(kind)
 	} else if kind in [.key_down, .key_up] {
-		r.ctx.log('handle key event ${kind}',@LOCATION)
+		r.ctx.log('handle key event ${kind}', @LOCATION)
 		r.handle_key_event(kind)
 	}
 }
@@ -671,26 +698,26 @@ fn (mut r Renderer) handle_mouse_event(kind UiEventKind) {
 	}
 
 	mut ev := UiEvent{
-		kind:        kind
-		target:      target
-		path:        path.clone()
-		key:         r.last_key
-		mouse:       r.last_mouse
-		renderer: 		 r
-		target_tag:  target_tag
-		propagate:   true
+		kind:       kind
+		target:     target
+		path:       path.clone()
+		key:        r.last_key
+		mouse:      r.last_mouse
+		renderer:   r
+		target_tag: target_tag
+		propagate:  true
 	}
 	r.dispatch_event(mut ev, path)
 }
 
 fn (mut r Renderer) handle_key_event(kind UiEventKind) {
-	r.ctx.log('handling key event ${kind}',@LOCATION)
-	r.ctx.log('handling key event focus path ${r.focus.path}',@LOCATION)
+	r.ctx.log('handling key event ${kind}', @LOCATION)
+	r.ctx.log('handling key event focus path ${r.focus.path}', @LOCATION)
 	if r.focus.path.len == 0 {
-		r.ctx.log('handling key event no target ?!',@LOCATION)
+		r.ctx.log('handling key event no target ?!', @LOCATION)
 		return
 	}
-	r.ctx.log('handling key event proceeding',@LOCATION)
+	r.ctx.log('handling key event proceeding', @LOCATION)
 	target := r.focus.path[r.focus.path.len - 1]
 	mut target_tag := ''
 	if node := r.node_by_id(target) {
@@ -698,16 +725,16 @@ fn (mut r Renderer) handle_key_event(kind UiEventKind) {
 	}
 
 	mut ev := UiEvent{
-		kind:        kind
-		target:      target
-		path:        r.focus.path.clone()
-		renderer:    r
-		key:         r.last_key
-		mouse:       r.last_mouse
-		target_tag:  target_tag
-		propagate:   true
+		kind:       kind
+		target:     target
+		path:       r.focus.path.clone()
+		renderer:   r
+		key:        r.last_key
+		mouse:      r.last_mouse
+		target_tag: target_tag
+		propagate:  true
 	}
-	r.ctx.log('dispatching key event ${ev}',@LOCATION)
+	r.ctx.log('dispatching key event ${ev}', @LOCATION)
 	r.dispatch_event(mut ev, r.focus.path.clone())
 }
 
@@ -721,7 +748,8 @@ fn (mut r Renderer) hit_path(x int, y int) []int {
 	mut hits := []Hit{}
 	for n in r.ctx.nodes {
 		if x >= n.rect.x && x < n.rect.x + n.rect.width && y >= n.rect.y
-			&& y < n.rect.y + n.rect.height/* || n.id == 0 */{
+			&& y < n.rect.y + n.rect.height //|| n.id == 0
+		  {
 			mut area := n.rect.width * n.rect.height
 			// if n.id == 0 {
 			// 	area = r.ctx.viewport.width * r.ctx.viewport.width
@@ -741,51 +769,54 @@ fn (mut r Renderer) hit_path(x int, y int) []int {
 	}
 	return path
 }
+
 fn ident[T](t int) string {
-	return "$t"
+	return '${t}'
 }
+
 fn (mut r Renderer) update_focus(new_path []int) {
 	old_path := r.focus.path
 	if new_path.len == 0 && old_path.len == 0 {
 		return
 	}
-	if arrays.join_to_string(new_path,(","),ident[int]) == arrays.join_to_string(old_path,(","),ident[int]) {
+	if arrays.join_to_string(new_path, (','), ident[int]) == arrays.join_to_string(old_path,
+		(','), ident[int]) {
 		return
 	}
 	k := common_prefix_len_ids(old_path, new_path)
 
 	// blur old
-	r.ctx.log("bluring ${old_path}",@LOCATION)
+	r.ctx.log('bluring ${old_path}', @LOCATION)
 	for i := old_path.len - 1; i >= k; i-- {
 		id := old_path[i]
 		node := r.node_by_id(id) or { continue }
 		mut blur_event := UiEvent{
-			kind:        .blur
-			target:      id
-			path:        old_path[..i + 1].clone()
-			key:         r.last_key
-			mouse:       r.last_mouse
-			renderer: r
-			target_tag:  node.tag
-			propagate:   true
+			kind:       .blur
+			target:     id
+			path:       old_path[..i + 1].clone()
+			key:        r.last_key
+			mouse:      r.last_mouse
+			renderer:   r
+			target_tag: node.tag
+			propagate:  true
 		}
 		node.dispatch_event(mut blur_event)
 	}
 
 	// focus new
-	r.ctx.log("focusing ${new_path}",@LOCATION)
+	r.ctx.log('focusing ${new_path}', @LOCATION)
 	for i := k; i < new_path.len; i++ {
 		id := new_path[i]
 		node := r.node_by_id(id) or { continue }
 		mut focus_event := UiEvent{
-			kind:        .focus
-			target:      id
-			path:        new_path[..i + 1].clone()
-			key:         r.last_key
-			mouse:       r.last_mouse
-			renderer: r
-			target_tag:  node.tag
-			propagate:   true
+			kind:       .focus
+			target:     id
+			path:       new_path[..i + 1].clone()
+			key:        r.last_key
+			mouse:      r.last_mouse
+			renderer:   r
+			target_tag: node.tag
+			propagate:  true
 		}
 		node.dispatch_event(mut focus_event)
 	}
@@ -866,13 +897,13 @@ fn (mut r Renderer) update_raw_input(e &tui.Event) {
 			} else {
 				r.last_mouse.wheel = 0
 			}
-			r.ctx.log('mouse scroll event ${r.last_mouse}',@LOCATION)
+			r.ctx.log('mouse scroll event ${r.last_mouse}', @LOCATION)
 		}
 		.resized {
 			// keep viewport in sync if you want; render_frame will set it again anyway
 			r.ctx.viewport.width = e.width
 			r.ctx.viewport.height = e.height
-			r.ctx.log('window resize event ${r.ctx.viewport}',@LOCATION)
+			r.ctx.log('window resize event ${r.ctx.viewport}', @LOCATION)
 		}
 		else {}
 	}

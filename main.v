@@ -6,7 +6,7 @@ import editor
 import time
 
 const top_bar_height = 3
-const status_bar_height = 2
+const status_bar_height = 1
 const divider_width = 1
 const min_left_width = 12
 const min_right_width = 20
@@ -18,6 +18,25 @@ const editor_cursor_bg = reactive.TermColor{210, 210, 210}
 const editor_cursor_fg = reactive.TermColor{20, 24, 32}
 const editor_selection_bg = reactive.TermColor{60, 80, 120}
 const editor_selection_fg = reactive.TermColor{255, 255, 255}
+const scrollbar_width = 1
+
+struct ScrollbarState {
+mut:
+	dragging    bool
+	drag_offset int
+}
+
+type ScrollGetFn = fn (&LayoutState) int
+
+type ScrollSetFn = fn (mut LayoutState, int)
+
+struct ScrollbarBindings {
+	viewport   ScrollGetFn
+	total      ScrollGetFn
+	offset     ScrollGetFn
+	set_offset ScrollSetFn
+}
+
 const file_refresh_interval_ms = 2000
 
 enum FilePromptMode {
@@ -59,38 +78,44 @@ fn itos(value int) string {
 
 struct LayoutState {
 mut:
-	left_panel_width     int = 26
-	resizing             bool
-	viewport_width       int       = 80
-	viewport_height      int       = 24
-	tree                 &FileTree = unsafe { nil }
-	file_entries         []FileTreeEntry
-	selected_file        string
-	buffer               &editor.TextBuffer = unsafe { nil }
-	editor_view_x        int
-	editor_view_y        int
-	editor_focused       bool
-	editor_dragging      bool
-	editor_rect          reactive.TermRect
-	open_files           []string
-	open_panel_height    int = 8
-	resizing_left_split  bool
-	mouse_x              int
-	mouse_y              int
-	hover_tag            string
-	file_tree_scroll     int
-	open_files_scroll    int
-	tree_selected_path   string
-	context_menu         ContextMenuState
-	prompt               FilePromptState
-	last_tree_refresh_ms i64
-	status_message       string
-	tree_rect            reactive.TermRect
-	open_list_rect       reactive.TermRect
-	tree_visible_rows    int
-	open_visible_rows    int
-	editor_follow_cursor bool = true
-	buffer_dirty         bool
+	left_panel_width      int = 26
+	resizing              bool
+	viewport_width        int       = 80
+	viewport_height       int       = 24
+	tree                  &FileTree = unsafe { nil }
+	file_entries          []FileTreeEntry
+	selected_file         string
+	buffer                &editor.TextBuffer = unsafe { nil }
+	editor_view_x         int
+	editor_view_y         int
+	editor_focused        bool
+	editor_dragging       bool
+	editor_rect           reactive.TermRect
+	open_files            []string
+	open_panel_height     int = 8
+	resizing_left_split   bool
+	mouse_x               int
+	mouse_y               int
+	hover_tag             string
+	file_tree_scroll      int
+	open_files_scroll     int
+	tree_selected_path    string
+	context_menu          ContextMenuState
+	prompt                FilePromptState
+	last_tree_refresh_ms  i64
+	status_message        string
+	tree_rect             reactive.TermRect
+	open_list_rect        reactive.TermRect
+	tree_visible_rows     int
+	open_visible_rows     int
+	editor_follow_cursor  bool = true
+	buffer_dirty          bool
+	tree_scrollbar        ScrollbarState
+	open_scrollbar        ScrollbarState
+	editor_scrollbar      ScrollbarState
+	tree_scrollbar_rect   reactive.TermRect
+	open_scrollbar_rect   reactive.TermRect
+	editor_scrollbar_rect reactive.TermRect
 }
 
 fn clamp_left_width(width int, viewport_width int) int {
@@ -186,7 +211,7 @@ fn clamp_editor_view(mut state LayoutState, width int, height int) {
 	if state.editor_view_y > max_line {
 		state.editor_view_y = max_line
 	}
-	mut content_width := width - editor_gutter_chars
+	mut content_width := width - editor_gutter_chars - scrollbar_width
 	if content_width <= 0 {
 		content_width = 1
 	}
@@ -686,6 +711,11 @@ fn handle_root_event(mut state LayoutState, mut e reactive.UiEvent) {
 	if e.kind == .mouse_down && !e.mouse.buttons.right {
 		hide_context_menu(mut state)
 	}
+	if e.kind == .mouse_up {
+		state.tree_scrollbar.dragging = false
+		state.open_scrollbar.dragging = false
+		state.editor_scrollbar.dragging = false
+	}
 }
 
 fn tree_panel_event_handler(mut state LayoutState) reactive.UiEventHandler {
@@ -699,7 +729,7 @@ fn tree_panel_event_handler(mut state LayoutState) reactive.UiEventHandler {
 				y: e.mouse.y
 			})
 			{
-				adjust_tree_scroll(mut state, -4*e.mouse.wheel)
+				adjust_tree_scroll(mut state, -3 * e.mouse.wheel)
 			}
 		}
 		if e.kind == .key_down {
@@ -727,7 +757,7 @@ fn open_panel_event_handler(mut state LayoutState) reactive.UiEventHandler {
 				y: e.mouse.y
 			})
 			{
-				adjust_open_scroll(mut state, -3*e.mouse.wheel)
+				adjust_open_scroll(mut state, -3 * e.mouse.wheel)
 			}
 		}
 		if e.kind == .key_down {
@@ -809,6 +839,10 @@ fn build_file_list_markup(mut state LayoutState, left_width int, main_height int
 		}
 		line_top := 3 + row * row_height
 		mut entry_width := if left_width > 4 { left_width - 4 } else { left_width }
+		entry_width -= scrollbar_width
+		if entry_width < 1 {
+			entry_width = 1
+		}
 		if entry_width < 1 {
 			entry_width = 1
 		}
@@ -928,6 +962,334 @@ fn editor_cursor_style() reactive.TermStyleSpec {
 	)
 }
 
+fn scrollbar_track_style() reactive.TermStyleSpec {
+	return reactive.make_stylesheet(
+		background: reactive.TermColor{26, 32, 44}
+		foreground: reactive.TermColor{110, 120, 140}
+		border:     'empty'
+		line:       'empty'
+	)
+}
+
+fn scrollbar_thumb_style() reactive.TermStyleSpec {
+	return reactive.make_stylesheet(
+		background: reactive.TermColor{52, 78, 120}
+		foreground: reactive.TermColor{210, 210, 210}
+		border:     'empty'
+		line:       'empty'
+	)
+}
+
+fn clamp_int(value int, min_val int, max_val int) int {
+	mut v := value
+	if v < min_val {
+		v = min_val
+	}
+	if v > max_val {
+		v = max_val
+	}
+	return v
+}
+
+fn scrollbar_thumb_height(track_height int, viewport int, total int) int {
+	if track_height <= 0 {
+		return 0
+	}
+	if total <= 0 || viewport <= 0 {
+		return track_height
+	}
+	if total <= viewport {
+		return track_height
+	}
+	mut size := (track_height * track_height) / total
+	if size < 3 {
+		size = 3
+	}
+	if size > track_height {
+		size = track_height
+	}
+	return size
+}
+
+fn scrollbar_thumb_local(track_height int, viewport int, total int, offset int, thumb_height int) int {
+	if track_height <= thumb_height || total <= viewport {
+		return 0
+	}
+	max_offset := total - viewport
+	if max_offset <= 0 {
+		return 0
+	}
+	track_range := track_height - thumb_height
+	mut pos := int(f64(offset) / f64(max_offset) * f64(track_range))
+	if pos < 0 {
+		pos = 0
+	}
+	if pos > track_range {
+		pos = track_range
+	}
+	return pos
+}
+
+fn scrollbar_offset_from_thumb(track_height int, viewport int, total int, thumb_height int, thumb_local int) int {
+	if total <= viewport || track_height <= thumb_height {
+		return 0
+	}
+	max_offset := total - viewport
+	track_range := track_height - thumb_height
+	if track_range <= 0 {
+		return 0
+	}
+	mut ratio := f64(thumb_local) / f64(track_range)
+	if ratio < 0 {
+		ratio = 0
+	}
+	if ratio > 1 {
+		ratio = 1
+	}
+	return int(ratio * f64(max_offset) + 0.5)
+}
+
+fn build_vertical_scrollbar_component(tag string, left int, top int, height int, mut sb ScrollbarState, bindings ScrollbarBindings, mut state LayoutState) ?reactive.VNode {
+	if height <= 0 || scrollbar_width <= 0 {
+		return none
+	}
+	viewport := bindings.viewport(state)
+	total := bindings.total(state)
+	offset := bindings.offset(state)
+	thumb_height := scrollbar_thumb_height(height, viewport, total)
+	if thumb_height <= 0 {
+		return none
+	}
+	thumb_local := scrollbar_thumb_local(height, viewport, total, offset, thumb_height)
+	mut children := []reactive.VNode{}
+	for i in 0 .. height - 1 {
+		children << reactive.text(reactive.NodeSpec{
+			props: reactive.TermProps{
+				top:  i
+				left: 0
+				text: '║'
+			}
+			style: scrollbar_track_style()
+		})
+	}
+	for i in 0 .. thumb_height - 1 {
+		children << reactive.text(reactive.NodeSpec{
+			props: reactive.TermProps{
+				top:  thumb_local + i
+				left: 0
+				text: '█'
+			}
+			style: scrollbar_thumb_style()
+		})
+	}
+	event_handler := fn [left, top, height, bindings, mut state, mut sb] (mut e reactive.UiEvent) {
+		viewport := bindings.viewport(state)
+		total := bindings.total(state)
+		if height <= 0 {
+			return
+		}
+		thumb_height := scrollbar_thumb_height(height, viewport, total)
+		if thumb_height <= 0 {
+			return
+		}
+		mut local_y := e.mouse.y - top
+		if local_y < 0 {
+			local_y = 0
+		}
+		if local_y >= height {
+			local_y = height - 1
+		}
+		current_thumb := scrollbar_thumb_local(height, viewport, total, bindings.offset(state),
+			thumb_height)
+		track_range := if height > thumb_height { height - thumb_height } else { 0 }
+		if e.kind == .mouse_down {
+			if local_y >= current_thumb && local_y < current_thumb + thumb_height {
+				sb.dragging = true
+				sb.drag_offset = local_y - current_thumb
+			} else {
+				sb.dragging = true
+				sb.drag_offset = thumb_height / 2
+				mut new_thumb := local_y - sb.drag_offset
+				new_thumb = clamp_int(new_thumb, 0, track_range)
+				new_offset := scrollbar_offset_from_thumb(height, viewport, total, thumb_height,
+					new_thumb)
+				bindings.set_offset(mut state, new_offset)
+			}
+		} else if e.kind == .mouse_move && sb.dragging {
+			mut new_thumb := local_y - sb.drag_offset
+			new_thumb = clamp_int(new_thumb, 0, track_range)
+			new_offset := scrollbar_offset_from_thumb(height, viewport, total, thumb_height,
+				new_thumb)
+			bindings.set_offset(mut state, new_offset)
+		} else if e.kind == .mouse_up {
+			sb.dragging = false
+		}
+	}
+	return reactive.relative(reactive.NodeSpec{
+		tag:      tag
+		props:    reactive.TermProps{
+			left:   left
+			top:    top
+			width:  scrollbar_width
+			height: height
+		}
+		style:    scrollbar_track_style()
+		children: children
+		events:   [event_handler]
+	})
+}
+
+fn build_horizontal_scrollbar_component(tag string, left int, top int, width int, mut sb ScrollbarState, bindings ScrollbarBindings, mut state LayoutState) ?reactive.VNode {
+	if width <= 0 {
+		return none
+	}
+	viewport := bindings.viewport(state)
+	total := bindings.total(state)
+	offset := bindings.offset(state)
+	thumb_width := scrollbar_thumb_height(width, viewport, total)
+	if thumb_width <= 0 {
+		return none
+	}
+	thumb_local := scrollbar_thumb_local(width, viewport, total, offset, thumb_width)
+	mut children := []reactive.VNode{}
+	for i in 0 .. width - 1 {
+		children << reactive.text(reactive.NodeSpec{
+			props: reactive.TermProps{
+				top:  0
+				left: i
+				text: '═'
+			}
+			style: scrollbar_track_style()
+		})
+	}
+	for i in 0 .. thumb_width - 1 {
+		children << reactive.text(reactive.NodeSpec{
+			props: reactive.TermProps{
+				top:  0
+				left: thumb_local + i
+				text: '█'
+			}
+			style: scrollbar_thumb_style()
+		})
+	}
+	event_handler := fn [left, width, bindings, mut state, mut sb] (mut e reactive.UiEvent) {
+		viewport := bindings.viewport(state)
+		total := bindings.total(state)
+		thumb_width := scrollbar_thumb_height(width, viewport, total)
+		if thumb_width <= 0 {
+			return
+		}
+		mut local_x := e.mouse.x - left
+		if local_x < 0 {
+			local_x = 0
+		}
+		if local_x >= width {
+			local_x = width - 1
+		}
+		current_thumb := scrollbar_thumb_local(width, viewport, total, bindings.offset(state),
+			thumb_width)
+		track_range := if width > thumb_width { width - thumb_width } else { 0 }
+		if e.kind == .mouse_down {
+			if local_x >= current_thumb && local_x < current_thumb + thumb_width {
+				sb.dragging = true
+				sb.drag_offset = local_x - current_thumb
+			} else {
+				sb.dragging = true
+				sb.drag_offset = thumb_width / 2
+				mut new_thumb := local_x - sb.drag_offset
+				new_thumb = clamp_int(new_thumb, 0, track_range)
+				new_offset := scrollbar_offset_from_thumb(width, viewport, total, thumb_width,
+					new_thumb)
+				bindings.set_offset(mut state, new_offset)
+			}
+		} else if e.kind == .mouse_move && sb.dragging {
+			mut new_thumb := local_x - sb.drag_offset
+			new_thumb = clamp_int(new_thumb, 0, track_range)
+			new_offset := scrollbar_offset_from_thumb(width, viewport, total, thumb_width,
+				new_thumb)
+			bindings.set_offset(mut state, new_offset)
+		} else if e.kind == .mouse_up {
+			sb.dragging = false
+		}
+	}
+	return reactive.relative(reactive.NodeSpec{
+		tag:      tag
+		props:    reactive.TermProps{
+			left:   left
+			top:    top
+			width:  width
+			height: 1
+		}
+		style:    scrollbar_track_style()
+		children: children
+		events:   [event_handler]
+	})
+}
+
+fn tree_scrollbar_bindings() ScrollbarBindings {
+	return ScrollbarBindings{
+		viewport:   fn (state &LayoutState) int {
+			return if state.tree_visible_rows > 0 { state.tree_visible_rows } else { 1 }
+		}
+		total:      fn (state &LayoutState) int {
+			return state.file_entries.len
+		}
+		offset:     fn (state &LayoutState) int {
+			return state.file_tree_scroll
+		}
+		set_offset: fn (mut state LayoutState, value int) {
+			state.file_tree_scroll = clamp_scroll(value, if state.tree_visible_rows > 0 {
+				state.tree_visible_rows
+			} else {
+				1
+			}, state.file_entries.len)
+		}
+	}
+}
+
+fn open_scrollbar_bindings() ScrollbarBindings {
+	return ScrollbarBindings{
+		viewport:   fn (state &LayoutState) int {
+			return if state.open_visible_rows > 0 { state.open_visible_rows } else { 1 }
+		}
+		total:      fn (state &LayoutState) int {
+			return state.open_files.len
+		}
+		offset:     fn (state &LayoutState) int {
+			return state.open_files_scroll
+		}
+		set_offset: fn (mut state LayoutState, value int) {
+			state.open_files_scroll = clamp_scroll(value, if state.open_visible_rows > 0 {
+				state.open_visible_rows
+			} else {
+				1
+			}, state.open_files.len)
+		}
+	}
+}
+
+fn editor_scrollbar_bindings() ScrollbarBindings {
+	return ScrollbarBindings{
+		viewport:   fn (state &LayoutState) int {
+			return if state.editor_rect.height > 0 { state.editor_rect.height } else { 1 }
+		}
+		total:      fn (state &LayoutState) int {
+			if isnil(state.buffer) {
+				return 0
+			}
+			return state.buffer.lines.len
+		}
+		offset:     fn (state &LayoutState) int {
+			return state.editor_view_y
+		}
+		set_offset: fn (mut state LayoutState, value int) {
+			state.editor_view_y = value
+			state.editor_follow_cursor = false
+			clamp_editor_view(mut state, state.editor_rect.width, state.editor_rect.height)
+		}
+	}
+}
+
 fn refresh_file_entries(mut state LayoutState) {
 	if isnil(state.tree) {
 		return
@@ -952,7 +1314,7 @@ fn build_editor_view(mut state LayoutState, width int, height int, work_left int
 	} else {
 		clamp_editor_view(mut state, width, height)
 	}
-	mut content_width := width - editor_gutter_chars
+	mut content_width := width - editor_gutter_chars - scrollbar_width
 	if content_width < 1 {
 		content_width = 1
 	}
@@ -972,7 +1334,7 @@ fn build_editor_view(mut state LayoutState, width int, height int, work_left int
 		style: editor_background_style()
 	})
 	mut free_space_begin := 1
-	mut last_text := "0"
+	mut last_text := '0'
 	for idx, line in slice.lines {
 		mut left := 0
 		children << reactive.text(reactive.NodeSpec{
@@ -1003,24 +1365,24 @@ fn build_editor_view(mut state LayoutState, width int, height int, work_left int
 			})
 			left += seg.text.len
 		}
-		free_space_begin+=1
-		last_text=line.gutter
+		free_space_begin += 1
+		last_text = line.gutter
 	}
-	mut last_line_num:=last_text.trim(" ").int()+1
-	for free_space_begin <= (height+1)  {
+	mut last_line_num := last_text.trim(' ').int() + 1
+	for free_space_begin <= (height + 1) {
 		mut left := 0
 		children << reactive.text(reactive.NodeSpec{
 			tag:   'editor-gutter'
 			props: reactive.TermProps{
-				top:  free_space_begin-1
+				top:  free_space_begin - 1
 				left: left
-				text: "  ${last_line_num:4}  "
+				text: '  ${last_line_num:4}  '
 				/// text: "        "
 			}
 			style: editor_gutter_background_style().alter_color(-60)
 		})
-		free_space_begin+=1
-		last_line_num+=1
+		free_space_begin += 1
+		last_line_num += 1
 	}
 
 	if cursor := slice.cursor {
@@ -1090,7 +1452,7 @@ fn handle_editor_event(mut state LayoutState, width int, height int, work_left i
 	if e.kind == .mouse_move {
 		if e.mouse.wheel != 0 && editor_hit_test(state.editor_rect, e.mouse.x, e.mouse.y) {
 			state.editor_follow_cursor = false
-			state.editor_view_y -= 3*e.mouse.wheel
+			state.editor_view_y -= -3 * e.mouse.wheel
 			clamp_editor_view(mut state, width, height)
 		}
 		if state.editor_dragging && e.mouse.buttons.left {
@@ -1307,9 +1669,9 @@ fn open_files_component(mut state LayoutState, width int, height int) reactive.V
 		bg := if path == state.selected_file { '#2f3e5c' } else { '#1f2736' }
 		node_tag := 'open-${idx}'
 		handler_name := 'open_click_${idx}'
-		mut content_width := width - 4
+		mut content_width := width - 4 - scrollbar_width
 		if content_width < 1 {
-			content_width = width
+			content_width = width - scrollbar_width
 		}
 		b.write_string('\n\t<text tag="${node_tag}" onclick={' + handler_name +
 			'} style="top:${row + 1};left:2;width:${content_width};height:1;fg:${fg};bg:${bg}">')
@@ -1500,6 +1862,32 @@ fn build_layout_view(mut state LayoutState) reactive.VNode {
 		width:  left_width
 		height: tree_panel_height
 	}
+	mut tree_scroll_left := state.tree_rect.x + state.tree_rect.width - scrollbar_width
+	if tree_scroll_left < state.tree_rect.x {
+		tree_scroll_left = state.tree_rect.x
+	}
+	mut tree_scroll_top := state.tree_rect.y
+	mut tree_scroll_height := state.tree_rect.height
+	if tree_scroll_height < 1 {
+		tree_scroll_height = state.tree_rect.height
+		tree_scroll_top = state.tree_rect.y
+	}
+	state.tree_scrollbar_rect = reactive.TermRect{
+		x:      tree_scroll_left
+		y:      tree_scroll_top
+		width:  scrollbar_width
+		height: tree_scroll_height+2
+	}
+	mut open_scroll_left := state.open_list_rect.x + state.open_list_rect.width - scrollbar_width
+	if open_scroll_left < state.open_list_rect.x {
+		open_scroll_left = state.open_list_rect.x
+	}
+	state.open_scrollbar_rect = reactive.TermRect{
+		x:      open_scroll_left
+		y:      state.open_list_rect.y + 1
+		width:  scrollbar_width
+		height: state.open_list_rect.height
+	}
 	mut props := map[string]string{}
 	props['viewport_width'] = itos(viewport_width-1)
 	props['viewport_height'] = itos(viewport_height)
@@ -1507,7 +1895,7 @@ fn build_layout_view(mut state LayoutState) reactive.VNode {
 	props['status_height'] = itos(status_bar_height)
 	props['status_top'] = itos(status_top+1)
 	props['main_top'] = itos(top_bar_height+1)
-	props['divider_height'] = itos(main_height)
+	props['divider_height'] = itos(main_height-1)
 	props['main_height'] = itos(main_height-1)
 	props['left_width'] = itos(left_width)
 	props['divider_left'] = itos(left_width)
@@ -1516,7 +1904,7 @@ fn build_layout_view(mut state LayoutState) reactive.VNode {
 	props['work_width'] = itos(work_width)
 	props['open_panel_height'] = itos(open_panel_height-1)
 	props['open_panel_height_plus_one'] = itos(open_panel_height)
-	props['tree_panel_height'] = itos(tree_panel_height)
+	props['tree_panel_height'] = itos(tree_panel_height-1)
 	status_hover := if state.hover_tag.len > 0 { state.hover_tag } else { 'none' }
 	mut status_line := 'Panel ${left_width}px | Editor ${work_width}px | Mouse ${state.mouse_x},${state.mouse_y} | Hover ${status_hover}'
 	if state.status_message.len > 0 {
@@ -1578,14 +1966,18 @@ fn build_layout_view(mut state LayoutState) reactive.VNode {
 	}
 	open_panel_view := open_files_component(mut state, left_width, open_panel_height)
 	file_tree_view := file_list_component(mut state, left_width, tree_panel_height)
-	work_panel_view := build_editor_view(mut state, work_width, main_height, work_left,
+	work_panel_view := build_editor_view(mut state, work_width, main_height-1, work_left,
 		main_top)
+	state.editor_scrollbar_rect = reactive.TermRect{
+		x:      state.editor_rect.x + state.editor_rect.width - scrollbar_width
+		y:      state.editor_rect.y + 1
+		width:  scrollbar_width
+		height: state.editor_rect.height
+	}
 	mut named_children := map[string][]reactive.VNode{}
 	named_children['open_files'] = [open_panel_view]
 	named_children['file_tree'] = [file_tree_view]
 	named_children['work_panel'] = [work_panel_view]
-	// named_children['top_title'] = [build_top_title_node(state)]
-	// named_children['top_controls'] = [build_close_button(mut state, viewport_width)]
 	ctx := reactive.TemplateContext{
 		props:          props
 		handlers:       handlers
@@ -1607,6 +1999,24 @@ fn build_layout_view(mut state LayoutState) reactive.VNode {
 				}),
 			]
 		})
+	}
+	if node := build_vertical_scrollbar_component('tree-scrollbar', state.tree_scrollbar_rect.x,
+		state.tree_scrollbar_rect.y, state.tree_scrollbar_rect.height, mut state.tree_scrollbar,
+		tree_scrollbar_bindings(), mut state)
+	{
+		view.children << node
+	}
+	if node := build_vertical_scrollbar_component('open-scrollbar', state.open_scrollbar_rect.x,
+		state.open_scrollbar_rect.y, state.open_scrollbar_rect.height, mut state.open_scrollbar,
+		open_scrollbar_bindings(), mut state)
+	{
+		view.children << node
+	}
+	if node := build_vertical_scrollbar_component('editor-scrollbar', state.editor_scrollbar_rect.x,
+		state.editor_scrollbar_rect.y, state.editor_scrollbar_rect.height, mut state.editor_scrollbar,
+		editor_scrollbar_bindings(), mut state)
+	{
+		view.children << node
 	}
 	view.events << fn [mut state] (mut e reactive.UiEvent) {
 		handle_root_event(mut state, mut e)

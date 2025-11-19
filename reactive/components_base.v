@@ -37,8 +37,11 @@ fn render_rect(mut node VNode, origin_x int, origin_y int, mut ctx RenderContext
 	if node.props.height == -1 {
 		rect.height = ctx.viewport.height
 	}
-	if node.props.height == 0 {
-		rect.height = node.props.height + 1
+	if rect.width <= 0 {
+		rect.width = if ctx.viewport.width > 0 { ctx.viewport.width } else { 1 }
+	}
+	if rect.height <= 0 {
+		rect.height = 1
 	}
 	_ = ctx.register(rect, node.style, node.events, node.tag)
 
@@ -48,7 +51,7 @@ fn render_rect(mut node VNode, origin_x int, origin_y int, mut ctx RenderContext
 	}
 	ctx.tui.set_bg_color(r: style.background.r, g: style.background.g, b: style.background.b)
 	ctx.tui.set_color(r: style.foreground.r, g: style.foreground.g, b: style.foreground.b)
-	ctx.tui.draw_rect(rect.x, rect.y, rect.x + rect.width, rect.y + node.props.height)
+	ctx.tui.draw_rect(rect.x, rect.y, rect.x + rect.width, rect.y + rect.height)
 	// ctx.tui.draw_text(rect.x, rect.y, "x:${rect.x},y:${rect.y}")
 	ctx.tui.reset()
 
