@@ -1,6 +1,9 @@
 module editor
 
+import strings
+
 pub const default_gutter_width = 6
+pub const tab_stop = 4
 
 pub struct Position {
 pub mut:
@@ -58,6 +61,74 @@ pub:
 	lines       []ViewLine
 	total_lines int
 	cursor      ?CursorView
+}
+
+fn expand_tabs(line string) string {
+	mut builder := strings.new_builder(line.len + 8)
+	mut column := 0
+	for ch in line.runes() {
+		if ch == `\t` {
+			mut spaces := tab_stop - (column % tab_stop)
+			if spaces <= 0 {
+				spaces = tab_stop
+			}
+			builder.write_string(' '.repeat(spaces))
+			column += spaces
+		} else {
+			builder.write_rune(ch)
+			column++
+		}
+	}
+	return builder.str()
+}
+
+pub fn visual_column(line string, column int) int {
+	mut visual := 0
+	mut idx := 0
+	for ch in line.runes() {
+		if idx >= column {
+			break
+		}
+		if ch == `\t` {
+			mut spaces := tab_stop - (visual % tab_stop)
+			if spaces <= 0 {
+				spaces = tab_stop
+			}
+			visual += spaces
+		} else {
+			visual++
+		}
+		idx++
+	}
+	return visual
+}
+
+pub fn visual_length(line string) int {
+	return visual_column(line, line.len)
+}
+
+pub fn actual_column(line string, visual int) int {
+	mut current := 0
+	mut idx := 0
+	for ch in line.runes() {
+		mut width := 1
+		if ch == `\t` {
+			mut spaces := tab_stop - (current % tab_stop)
+			if spaces <= 0 {
+				spaces = tab_stop
+			}
+			width = spaces
+		}
+		if current + width > visual {
+			return idx
+		}
+		current += width
+		idx++
+		if current == visual {
+			return idx
+		}
+	}
+	return idx
 }
 
 pub struct TextBuffer {
@@ -332,16 +403,19 @@ pub fn (b TextBuffer) viewport_slice(view EditorViewport) ViewportSlice {
 		}
 	}
 	if b.cursor.line >= view.y && b.cursor.line < view.y + height {
-		mut column_offset := b.cursor.column - view.x
 		mut view_width := view.width
 		if view_width <= 0 {
 			view_width = 1
 		}
+		line_text := b.lines[b.cursor.line]
+		cursor_visual := visual_column(line_text, b.cursor.column)
+		column_offset := cursor_visual - view.x
 		if column_offset >= 0 && column_offset < view_width {
 			mut ch := ' '
-			line_runes := b.lines[b.cursor.line].runes()
-			if b.cursor.column < line_runes.len {
-				ch = line_runes[b.cursor.column].str()
+			expanded := expand_tabs(line_text)
+			exp_runes := expanded.runes()
+			if cursor_visual < exp_runes.len {
+				ch = exp_runes[cursor_visual].str()
 			}
 			cursor_info = CursorView{
 				line:   b.cursor.line - view.y
@@ -364,7 +438,8 @@ fn (b TextBuffer) build_segments(line_idx int, view_x int, view_width int) []Vie
 		width = 1
 	}
 	line := b.lines[line_idx]
-	runes := line.runes()
+	expanded := expand_tabs(line)
+	runes := expanded.runes()
 	selection := b.selection_columns(line_idx)
 	mut segments := []ViewSegment{}
 	mut current_text := ''
@@ -410,13 +485,14 @@ fn (b TextBuffer) selection_columns(line_idx int) SelectionColumns {
 		if line_idx < selection.start.line || line_idx > selection.end.line {
 			return SelectionColumns{}
 		}
+		line_text := b.lines[line_idx]
 		mut start := 0
-		mut end := b.lines[line_idx].len
+		mut end := visual_length(line_text)
 		if line_idx == selection.start.line {
-			start = selection.start.column
+			start = visual_column(line_text, selection.start.column)
 		}
 		if line_idx == selection.end.line {
-			end = selection.end.column
+			end = visual_column(line_text, selection.end.column)
 		}
 		if end < start {
 			end = start

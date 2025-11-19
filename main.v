@@ -137,6 +137,11 @@ fn adjust_open_scroll(mut state LayoutState, delta int) {
 	state.open_files_scroll = clamp_scroll(state.open_files_scroll + delta, visible, state.open_files.len)
 }
 
+fn sync_viewport_from_renderer(mut state LayoutState, renderer reactive.Renderer) {
+	state.viewport_width = renderer.ctx.viewport.width
+	state.viewport_height = renderer.ctx.viewport.height
+}
+
 fn show_context_menu(mut state LayoutState, entry FileTreeEntry, pos reactive.TermPoint) {
 	state.context_menu.visible = true
 	state.context_menu.entry = entry
@@ -190,8 +195,9 @@ fn clamp_editor_view(mut state LayoutState, width int, height int) {
 	}
 	mut max_column := 0
 	for line in state.buffer.lines {
-		if line.len > max_column {
-			max_column = line.len
+		visual := editor.visual_length(line)
+		if visual > max_column {
+			max_column = visual
 		}
 	}
 	mut max_view := max_column - content_width
@@ -671,6 +677,7 @@ fn build_prompt_overlay(mut state LayoutState) reactive.VNode {
 }
 
 fn handle_root_event(mut state LayoutState, mut e reactive.UiEvent) {
+	sync_viewport_from_renderer(mut state, e.renderer)
 	if state.prompt.active {
 		if handle_prompt_input(mut state, mut e) {
 			return
@@ -803,6 +810,7 @@ fn update_left_split(mut state LayoutState, mouse_y int, main_top int, panel_hei
 }
 
 fn track_pointer(mut state LayoutState, mut e reactive.UiEvent) {
+	sync_viewport_from_renderer(mut state, e.renderer)
 	state.mouse_x = e.mouse.x
 	state.mouse_y = e.mouse.y
 	if e.target_tag.len > 0 {
@@ -1104,6 +1112,7 @@ fn handle_editor_event(mut state LayoutState, width int, height int, work_left i
 	if state.prompt.active {
 		return
 	}
+	sync_viewport_from_renderer(mut state, e.renderer)
 	if e.kind == .mouse_down {
 		if editor_hit_test(state.editor_rect, e.mouse.x, e.mouse.y) {
 			state.editor_focused = true
@@ -1273,15 +1282,18 @@ fn editor_position_from_mouse(state LayoutState, mouse_x int, mouse_y int) edito
 			line = 0
 		}
 	}
-	mut column := mouse_x - state.editor_rect.x - editor_gutter_chars + state.editor_view_x
-	if column < 0 {
-		column = 0
+	mut visual_column_value := mouse_x - state.editor_rect.x - editor_gutter_chars +
+		state.editor_view_x
+	if visual_column_value < 0 {
+		visual_column_value = 0
 	}
-	line_len := state.buffer.lines[line].len
-	if column > line_len {
-		column = line_len
+	line_text := state.buffer.lines[line]
+	mut max_visual := editor.visual_length(line_text)
+	if visual_column_value > max_visual {
+		visual_column_value = max_visual
 	}
-	return editor.Position{line, column}
+	actual_column := editor.actual_column(line_text, visual_column_value)
+	return editor.Position{line, actual_column}
 }
 
 fn ensure_cursor_visible(mut state LayoutState, width int, height int) {
@@ -1300,11 +1312,18 @@ fn ensure_cursor_visible(mut state LayoutState, width int, height int) {
 	if content_width <= 0 {
 		content_width = 1
 	}
-	if state.buffer.cursor.column < state.editor_view_x {
-		state.editor_view_x = state.buffer.cursor.column
+	line_text := if state.buffer.cursor.line >= 0
+		&& state.buffer.cursor.line < state.buffer.lines.len {
+		state.buffer.lines[state.buffer.cursor.line]
+	} else {
+		''
 	}
-	if state.buffer.cursor.column >= state.editor_view_x + content_width {
-		state.editor_view_x = state.buffer.cursor.column - content_width + 1
+	cursor_visual := editor.visual_column(line_text, state.buffer.cursor.column)
+	if cursor_visual < state.editor_view_x {
+		state.editor_view_x = cursor_visual
+	}
+	if cursor_visual >= state.editor_view_x + content_width {
+		state.editor_view_x = cursor_visual - content_width + 1
 	}
 	clamp_editor_view(mut state, width, height)
 }
