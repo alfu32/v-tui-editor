@@ -33,35 +33,34 @@ fn test_viewport_slice_marks_cursor_and_selection() {
 	buf.start_selection(Position{ line: 1, column: 1 })
 	buf.select_to(Position{ line: 1, column: 4 })
 	view := EditorViewport{
-		x: 0
-		y: 0
-		width: 8
+		x:      0
+		y:      0
+		width:  8
 		height: 3
 	}
 	slice := buf.viewport_slice(view)
 	assert slice.lines.len == 3
 	assert slice.lines[1].gutter == '│     2│ '
 	mut has_selected := false
-	mut has_cursor := false
 	for seg in slice.lines[1].segments {
 		if seg.selected {
 			has_selected = true
 		}
-		if seg.cursor {
-			has_cursor = true
-		}
 	}
 	assert has_selected
-	assert has_cursor
+	assert slice.cursor != none
+	cursor := slice.cursor or { CursorView{} }
+	assert cursor.line == 1
+	assert cursor.column == 4
 }
 
 fn test_viewport_slice_respects_offsets() {
 	mut buf := new_text_buffer()
 	buf.load_text('0123456789\nabcdefghij')
 	view := EditorViewport{
-		x: 4
-		y: 1
-		width: 4
+		x:      4
+		y:      1
+		width:  4
 		height: 1
 	}
 	slice := buf.viewport_slice(view)

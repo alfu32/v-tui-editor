@@ -177,14 +177,13 @@ fn (mut p TemplateParser) parse_attribute_value() string {
 	start := p.idx
 	for !p.eof() {
 		ch := p.peek()
-		if ch.is_space() || ch in [`>`, `/`] {
+		if p.peek().is_space() || ch in [`>`, `/`] {
 			break
 		}
 		p.idx++
 	}
 	return p.src[start..p.idx]
 }
-
 fn (mut p TemplateParser) skip_whitespace() {
 	for !p.eof() && p.peek().is_space() {
 		p.idx++
@@ -451,8 +450,8 @@ fn merge_style_spec(style_map map[string]string, parent_style ?TermStyleSpec) Te
 		if c := parse_color(v) {
 			base_state.background = c
 		}
-	} else if v := style_map['background'] {
-		if c := parse_color(v) {
+	} else if vv := style_map['background'] {
+		if c := parse_color(vv) {
 			base_state.background = c
 		}
 	}
@@ -460,8 +459,8 @@ fn merge_style_spec(style_map map[string]string, parent_style ?TermStyleSpec) Te
 		if c := parse_color(v) {
 			base_state.foreground = c
 		}
-	} else if v := style_map['foreground'] {
-		if c := parse_color(v) {
+	} else if vvv := style_map['foreground'] {
+		if c := parse_color(vvv) {
 			base_state.foreground = c
 		}
 	}

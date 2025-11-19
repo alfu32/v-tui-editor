@@ -37,7 +37,6 @@ pub struct ViewSegment {
 pub:
 	text     string
 	selected bool
-	cursor   bool
 }
 
 pub struct ViewLine {
@@ -47,24 +46,32 @@ pub:
 	segments   []ViewSegment
 }
 
+pub struct CursorView {
+pub:
+	line   int
+	column int
+	char   string
+}
+
 pub struct ViewportSlice {
 pub:
-	lines      []ViewLine
+	lines       []ViewLine
 	total_lines int
+	cursor      ?CursorView
 }
 
 pub struct TextBuffer {
 pub mut:
-	lines        []string
-	cursor       Position
-	anchor       ?Position
-	clipboard    string
+	lines         []string
+	cursor        Position
+	anchor        ?Position
+	clipboard     string
 	notifications []Notification
 }
 
 pub fn new_text_buffer() &TextBuffer {
 	return &TextBuffer{
-		lines: ['']
+		lines:  ['']
 		cursor: Position{}
 	}
 }
@@ -83,11 +90,15 @@ pub fn (mut b TextBuffer) load_text(text string) {
 	b.anchor = none
 }
 
+pub fn (b TextBuffer) text() string {
+	return b.lines.join('\n')
+}
+
 pub fn (b &TextBuffer) clone() TextBuffer {
 	return TextBuffer{
-		lines: b.lines.clone()
-		cursor: Position{ b.cursor.line, b.cursor.column }
-		anchor: b.anchor
+		lines:     b.lines.clone()
+		cursor:    Position{b.cursor.line, b.cursor.column}
+		anchor:    b.anchor
 		clipboard: b.clipboard
 	}
 }
@@ -153,11 +164,11 @@ pub fn (mut b TextBuffer) move_right(expand bool, word bool) {
 
 pub fn (mut b TextBuffer) move_up(expand bool) {
 	if b.cursor.line == 0 {
-		b.move_cursor_to(Position{0,0}, expand)
+		b.move_cursor_to(Position{0, 0}, expand)
 		return
 	}
 	mut pos := Position{
-		line: b.cursor.line - 1
+		line:   b.cursor.line - 1
 		column: b.cursor.column
 	}
 	line_len := b.lines[pos.line].len
@@ -169,12 +180,12 @@ pub fn (mut b TextBuffer) move_up(expand bool) {
 
 pub fn (mut b TextBuffer) move_down(expand bool) {
 	if b.cursor.line >= b.lines.len - 1 {
-		pos := Position{ b.lines.len - 1, b.lines[b.lines.len - 1].len }
+		pos := Position{b.lines.len - 1, b.lines[b.lines.len - 1].len}
 		b.move_cursor_to(pos, expand)
 		return
 	}
 	mut pos := Position{
-		line: b.cursor.line + 1
+		line:   b.cursor.line + 1
 		column: b.cursor.column
 	}
 	line_len := b.lines[pos.line].len
@@ -185,17 +196,17 @@ pub fn (mut b TextBuffer) move_down(expand bool) {
 }
 
 pub fn (mut b TextBuffer) move_start_of_line(expand bool) {
-	b.move_cursor_to(Position{ b.cursor.line, 0 }, expand)
+	b.move_cursor_to(Position{b.cursor.line, 0}, expand)
 }
 
 pub fn (mut b TextBuffer) move_end_of_line(expand bool) {
-	b.move_cursor_to(Position{ b.cursor.line, b.lines[b.cursor.line].len }, expand)
+	b.move_cursor_to(Position{b.cursor.line, b.lines[b.cursor.line].len}, expand)
 }
 
 pub fn (mut b TextBuffer) select_all() {
 	last_line := b.lines.len - 1
 	last_col := b.lines[last_line].len
-	b.anchor = Position{0,0}
+	b.anchor = Position{0, 0}
 	b.cursor = Position{last_line, last_col}
 }
 
@@ -243,7 +254,10 @@ pub fn (mut b TextBuffer) delete_forward() {
 pub fn (mut b TextBuffer) copy_selection() bool {
 	if selection := b.selection_range() {
 		b.clipboard = b.extract_text(selection)
-		b.notifications << Notification{ kind: .copy, text: b.clipboard }
+		b.notifications << Notification{
+			kind: .copy
+			text: b.clipboard
+		}
 		return true
 	}
 	return false
@@ -253,7 +267,10 @@ pub fn (mut b TextBuffer) cut_selection() bool {
 	if selection := b.selection_range() {
 		b.clipboard = b.extract_text(selection)
 		b.delete_selection()
-		b.notifications << Notification{ kind: .cut, text: b.clipboard }
+		b.notifications << Notification{
+			kind: .cut
+			text: b.clipboard
+		}
 		return true
 	}
 	return false
@@ -299,6 +316,8 @@ pub fn (b TextBuffer) viewport_slice(view EditorViewport) ViewportSlice {
 	mut lines := []ViewLine{}
 	height := if view.height <= 0 { 1 } else { view.height }
 	total := b.lines.len
+	mut cursor_info := CursorView{}
+	mut has_cursor := false
 	for row in 0 .. height {
 		line_idx := view.y + row
 		if line_idx >= total {
@@ -308,13 +327,34 @@ pub fn (b TextBuffer) viewport_slice(view EditorViewport) ViewportSlice {
 		gutter := b.gutter_text(line_idx)
 		lines << ViewLine{
 			line_index: line_idx
-			gutter: gutter
-			segments: segments
+			gutter:     gutter
+			segments:   segments
+		}
+	}
+	if b.cursor.line >= view.y && b.cursor.line < view.y + height {
+		mut column_offset := b.cursor.column - view.x
+		mut view_width := view.width
+		if view_width <= 0 {
+			view_width = 1
+		}
+		if column_offset >= 0 && column_offset < view_width {
+			mut ch := ' '
+			line_runes := b.lines[b.cursor.line].runes()
+			if b.cursor.column < line_runes.len {
+				ch = line_runes[b.cursor.column].str()
+			}
+			cursor_info = CursorView{
+				line:   b.cursor.line - view.y
+				column: column_offset
+				char:   ch
+			}
+			has_cursor = true
 		}
 	}
 	return ViewportSlice{
-		lines: lines
+		lines:       lines
 		total_lines: total
+		cursor:      if has_cursor { cursor_info } else { none }
 	}
 }
 
@@ -326,35 +366,17 @@ fn (b TextBuffer) build_segments(line_idx int, view_x int, view_width int) []Vie
 	line := b.lines[line_idx]
 	runes := line.runes()
 	selection := b.selection_columns(line_idx)
-	caret_line := line_idx == b.cursor.line
-	caret_col := b.cursor.column
 	mut segments := []ViewSegment{}
 	mut current_text := ''
 	mut current_selected := false
 	mut has_segment := false
 	for rel_col in 0 .. width {
 		actual_col := view_x + rel_col
-		cursor_here := caret_line && caret_col == actual_col
 		mut ch := ' '
 		if actual_col < runes.len {
 			ch = runes[actual_col].str()
 		}
 		selected := selection.intersects(actual_col)
-		if cursor_here {
-			if has_segment && current_text.len > 0 {
-				segments << ViewSegment{
-					text: current_text
-					selected: current_selected
-				}
-				current_text = ''
-				has_segment = false
-			}
-			segments << ViewSegment{
-				text: ch
-				cursor: true
-			}
-			continue
-		}
 		if !has_segment {
 			has_segment = true
 			current_selected = selected
@@ -364,7 +386,7 @@ fn (b TextBuffer) build_segments(line_idx int, view_x int, view_width int) []Vie
 		if selected != current_selected {
 			if current_text.len > 0 {
 				segments << ViewSegment{
-					text: current_text
+					text:     current_text
 					selected: current_selected
 				}
 			}
@@ -376,14 +398,8 @@ fn (b TextBuffer) build_segments(line_idx int, view_x int, view_width int) []Vie
 	}
 	if has_segment && current_text.len > 0 {
 		segments << ViewSegment{
-			text: current_text
+			text:     current_text
 			selected: current_selected
-		}
-	}
-	if caret_line && caret_col == view_x + width {
-		segments << ViewSegment{
-			text: ' '
-			cursor: true
 		}
 	}
 	return segments
@@ -407,7 +423,7 @@ fn (b TextBuffer) selection_columns(line_idx int) SelectionColumns {
 		}
 		return SelectionColumns{
 			start: start
-			end: end
+			end:   end
 			split: true
 		}
 	}
@@ -466,7 +482,7 @@ fn (b TextBuffer) clamp_position(pos Position) Position {
 	if column > line_len {
 		column = line_len
 	}
-	return Position{ line, column }
+	return Position{line, column}
 }
 
 fn (mut b TextBuffer) delete_selection() bool {
@@ -526,7 +542,7 @@ fn (b TextBuffer) selection_range() ?SelectionRange {
 	if start.line > end.line || (start.line == end.line && start.column > end.column) {
 		start, end = end, start
 	}
-	return SelectionRange{ start, end }
+	return SelectionRange{start, end}
 }
 
 fn (b TextBuffer) current_line() string {
@@ -534,7 +550,8 @@ fn (b TextBuffer) current_line() string {
 }
 
 fn is_word_char(ch rune) bool {
-	return (ch >= `0` && ch <= `9`) || (ch >= `a` && ch <= `z`) || (ch >= `A` && ch <= `Z`) || ch == `_` || ch == `$`
+	return (ch >= `0` && ch <= `9`) || (ch >= `a` && ch <= `z`)
+		|| (ch >= `A` && ch <= `Z`) || ch == `_` || ch == `$`
 }
 
 fn (b TextBuffer) word_boundary_left() Position {
@@ -557,7 +574,7 @@ fn (b TextBuffer) word_boundary_left() Position {
 	for i > 0 && is_word_char(runes[i - 1]) {
 		i--
 	}
-	return Position{ line_idx, i }
+	return Position{line_idx, i}
 }
 
 fn (b TextBuffer) word_boundary_right() Position {
@@ -567,9 +584,9 @@ fn (b TextBuffer) word_boundary_right() Position {
 	mut column := pos.column
 	if column >= runes.len {
 		if line_idx < b.lines.len - 1 {
-			return Position{ line_idx + 1, 0 }
+			return Position{line_idx + 1, 0}
 		}
-		return Position{ line_idx, runes.len }
+		return Position{line_idx, runes.len}
 	}
 	mut i := column
 	for i < runes.len && !is_word_char(runes[i]) {
@@ -578,5 +595,5 @@ fn (b TextBuffer) word_boundary_right() Position {
 	for i < runes.len && is_word_char(runes[i]) {
 		i++
 	}
-	return Position{ line_idx, i }
+	return Position{line_idx, i}
 }

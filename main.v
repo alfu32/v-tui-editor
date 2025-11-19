@@ -3,6 +3,7 @@ import reactive
 import strings
 import term.ui as tui
 import editor
+import time
 
 const top_bar_height = 3
 const status_bar_height = 2
@@ -16,41 +17,77 @@ const editor_cursor_bg = reactive.TermColor{210, 210, 210}
 const editor_cursor_fg = reactive.TermColor{20, 24, 32}
 const editor_selection_bg = reactive.TermColor{60, 80, 120}
 const editor_selection_fg = reactive.TermColor{255, 255, 255}
+const file_refresh_interval_ms = 2000
+
+enum FilePromptMode {
+	none
+	create_file
+	create_folder
+	rename_item
+}
+
+struct FilePromptState {
+mut:
+	active     bool
+	mode       FilePromptMode = .none
+	value      string
+	parent_dir string
+	target     string
+}
+
+struct ContextMenuState {
+mut:
+	visible bool
+	entry   FileTreeEntry
+	x       int
+	y       int
+}
 
 fn escape_text(value string) string {
 	return value
-		.replace("&", "&amp;")
-		.replace("<", "&lt;")
-		.replace(">", "&gt;")
-		.replace("\"", "&quot;")
-		.replace("'", "&#39;")
+		.replace('&', '&amp;')
+		.replace('<', '&lt;')
+		.replace('>', '&gt;')
+		.replace('"', '&quot;')
+		.replace("'", '&#39;')
 }
 
 fn itos(value int) string {
-	return "${value}"
+	return '${value}'
 }
 
 struct LayoutState {
 mut:
-	left_panel_width int = 26
-	resizing         bool
-	viewport_width   int = 80
-	viewport_height  int = 24
-	tree             &FileTree = unsafe { nil }
-	file_entries     []FileTreeEntry
-	selected_file    string
-	buffer           &editor.TextBuffer = unsafe { nil }
-	editor_view_x    int
-	editor_view_y    int
-	editor_focused   bool
-	editor_dragging  bool
-	editor_rect      reactive.TermRect
-	open_files       []string
-	open_panel_height int = 8
-	resizing_left_split bool
-	mouse_x          int
-	mouse_y          int
-	hover_tag        string
+	left_panel_width     int = 26
+	resizing             bool
+	viewport_width       int       = 80
+	viewport_height      int       = 24
+	tree                 &FileTree = unsafe { nil }
+	file_entries         []FileTreeEntry
+	selected_file        string
+	buffer               &editor.TextBuffer = unsafe { nil }
+	editor_view_x        int
+	editor_view_y        int
+	editor_focused       bool
+	editor_dragging      bool
+	editor_rect          reactive.TermRect
+	open_files           []string
+	open_panel_height    int = 8
+	resizing_left_split  bool
+	mouse_x              int
+	mouse_y              int
+	hover_tag            string
+	file_tree_scroll     int
+	open_files_scroll    int
+	tree_selected_path   string
+	context_menu         ContextMenuState
+	prompt               FilePromptState
+	last_tree_refresh_ms i64
+	status_message       string
+	tree_rect            reactive.TermRect
+	open_list_rect       reactive.TermRect
+	tree_visible_rows    int
+	open_visible_rows    int
 }
 
 fn clamp_left_width(width int, viewport_width int) int {
@@ -67,6 +104,516 @@ fn clamp_left_width(width int, viewport_width int) int {
 		clamped = max_width
 	}
 	return clamped
+}
+
+fn clamp_scroll(value int, visible int, total int) int {
+	if visible <= 0 {
+		return 0
+	}
+	mut max_scroll := total - visible
+	if max_scroll < 0 {
+		max_scroll = 0
+	}
+	mut clamped := value
+	if clamped < 0 {
+		clamped = 0
+	}
+	if clamped > max_scroll {
+		clamped = max_scroll
+	}
+	return clamped
+}
+
+fn adjust_tree_scroll(mut state LayoutState, delta int) {
+	visible := if state.tree_visible_rows > 0 { state.tree_visible_rows } else { 1 }
+	state.file_tree_scroll = clamp_scroll(state.file_tree_scroll + delta, visible, state.file_entries.len)
+}
+
+fn adjust_open_scroll(mut state LayoutState, delta int) {
+	visible := if state.open_visible_rows > 0 { state.open_visible_rows } else { 1 }
+	state.open_files_scroll = clamp_scroll(state.open_files_scroll + delta, visible, state.open_files.len)
+}
+
+fn show_context_menu(mut state LayoutState, entry FileTreeEntry, pos reactive.TermPoint) {
+	state.context_menu.visible = true
+	state.context_menu.entry = entry
+	state.context_menu.x = pos.x
+	state.context_menu.y = pos.y
+}
+
+fn hide_context_menu(mut state LayoutState) {
+	state.context_menu.visible = false
+}
+
+fn determine_creation_dir(state LayoutState) string {
+	if isnil(state.tree) {
+		return '.'
+	}
+	mut base := state.tree_selected_path
+	if base.len == 0 {
+		return state.tree.root
+	}
+	if os.is_dir(base) {
+		return base
+	}
+	dir := os.dir(base)
+	if dir.len == 0 {
+		return state.tree.root
+	}
+	return dir
+}
+
+fn start_file_prompt(mut state LayoutState, mode FilePromptMode, parent string, initial string) {
+	mut base := parent
+	if base.len == 0 {
+		base = if isnil(state.tree) { '.' } else { state.tree.root }
+	}
+	state.prompt.active = true
+	state.prompt.mode = mode
+	state.prompt.parent_dir = base
+	state.prompt.value = initial
+	if mode != .rename_item {
+		state.prompt.target = ''
+	}
+	hide_context_menu(mut state)
+}
+
+fn start_rename_prompt(mut state LayoutState, entry FileTreeEntry) {
+	start_file_prompt(mut state, .rename_item, os.dir(entry.full_path), entry.name)
+	state.prompt.target = entry.full_path
+}
+
+fn cancel_prompt(mut state LayoutState) {
+	state.prompt = FilePromptState{}
+}
+
+fn handle_prompt_input(mut state LayoutState, mut e reactive.UiEvent) bool {
+	if !state.prompt.active || e.kind != .key_down {
+		return false
+	}
+	code := int(e.key.code)
+	match code {
+		int(tui.KeyCode.enter) {
+			complete_prompt(mut state)
+			e.propagate = false
+			return true
+		}
+		int(tui.KeyCode.escape) {
+			cancel_prompt(mut state)
+			e.propagate = false
+			return true
+		}
+		int(tui.KeyCode.backspace) {
+			if state.prompt.value.len > 0 {
+				state.prompt.value = state.prompt.value[..state.prompt.value.len - 1]
+			}
+			e.propagate = false
+			return true
+		}
+		int(tui.KeyCode.delete) {
+			state.prompt.value = ''
+			e.propagate = false
+			return true
+		}
+		else {}
+	}
+	if e.key.char >= 32 && !e.key.ctrl && !e.key.alt && !e.key.meta {
+		state.prompt.value += e.key.char.str()
+		e.propagate = false
+		return true
+	}
+	return false
+}
+
+fn complete_prompt(mut state LayoutState) {
+	if !state.prompt.active {
+		return
+	}
+	value := state.prompt.value.trim_space()
+	if value.len == 0 {
+		state.status_message = 'Name must not be empty'
+		return
+	}
+	match state.prompt.mode {
+		.create_file {
+			create_file_entry(mut state, value)
+		}
+		.create_folder {
+			create_folder_entry(mut state, value)
+		}
+		.rename_item {
+			rename_entry(mut state, value)
+		}
+		else {}
+	}
+}
+
+fn target_path(state LayoutState, name string) string {
+	return os.join_path(state.prompt.parent_dir, name)
+}
+
+fn create_file_entry(mut state LayoutState, name string) {
+	path := target_path(state, name)
+	if os.exists(path) {
+		state.status_message = 'Path already exists'
+		return
+	}
+	os.write_file(path, '') or {
+		state.status_message = 'Create failed: ${err.msg()}'
+		return
+	}
+	state.status_message = 'Created ${name}'
+	cancel_prompt(mut state)
+	state.tree_selected_path = path
+	refresh_after_fs_change(mut state)
+}
+
+fn create_folder_entry(mut state LayoutState, name string) {
+	path := target_path(state, name)
+	if os.exists(path) {
+		state.status_message = 'Path already exists'
+		return
+	}
+	os.mkdir_all(path) or {
+		state.status_message = 'Folder failed: ${err.msg()}'
+		return
+	}
+	state.status_message = 'Created folder ${name}'
+	cancel_prompt(mut state)
+	state.tree_selected_path = path
+	refresh_after_fs_change(mut state)
+}
+
+fn rename_entry(mut state LayoutState, name string) {
+	old_path := state.prompt.target
+	if old_path.len == 0 {
+		state.status_message = 'No target to rename'
+		return
+	}
+	new_path := target_path(state, name)
+	if os.exists(new_path) {
+		state.status_message = 'Target already exists'
+		return
+	}
+	os.mv(old_path, new_path) or {
+		state.status_message = 'Rename failed: ${err.msg()}'
+		return
+	}
+	state.status_message = 'Renamed to ${name}'
+	update_paths_after_rename(mut state, old_path, new_path)
+	cancel_prompt(mut state)
+	refresh_after_fs_change(mut state)
+}
+
+fn delete_entry_at(mut state LayoutState, entry FileTreeEntry) {
+	if entry.typ == 'folder' {
+		os.rmdir_all(entry.full_path) or {
+			state.status_message = 'Delete failed: ${err.msg()}'
+			return
+		}
+	} else {
+		os.rm(entry.full_path) or {
+			state.status_message = 'Delete failed: ${err.msg()}'
+			return
+		}
+	}
+	state.status_message = 'Deleted ${entry.name}'
+	if state.selected_file == entry.full_path {
+		state.selected_file = ''
+	}
+	state.open_files = state.open_files.filter(it != entry.full_path)
+	if state.tree_selected_path == entry.full_path {
+		state.tree_selected_path = os.dir(entry.full_path)
+	}
+	refresh_after_fs_change(mut state)
+}
+
+fn update_paths_after_rename(mut state LayoutState, old_path string, new_path string) {
+	if state.selected_file == old_path {
+		state.selected_file = new_path
+	}
+	if state.tree_selected_path == old_path {
+		state.tree_selected_path = new_path
+	}
+	for idx, value in state.open_files {
+		if value == old_path {
+			state.open_files[idx] = new_path
+		}
+	}
+}
+
+fn refresh_after_fs_change(mut state LayoutState) {
+	if isnil(state.tree) {
+		return
+	}
+	state.tree.refresh_open_nodes()
+	refresh_file_entries(mut state)
+	state.last_tree_refresh_ms = time.now().unix_milli()
+}
+
+fn context_menu_style() reactive.TermStyleSpec {
+	return reactive.make_stylesheet(
+		background: reactive.TermColor{35, 40, 56}
+		foreground: reactive.TermColor{235, 235, 235}
+		border:     'box_light_rounded'
+		line:       'line_simple_simple'
+	)
+}
+
+fn context_item_style() reactive.TermStyleSpec {
+	return reactive.make_stylesheet(
+		background: reactive.TermColor{45, 52, 72}
+		foreground: reactive.TermColor{230, 230, 230}
+		border:     'empty'
+		line:       'empty'
+	)
+}
+
+fn build_context_menu_view(mut state LayoutState) reactive.VNode {
+	entry := state.context_menu.entry
+	struct ContextAction {
+		label   string
+		handler reactive.UiEventHandler
+	}
+
+	mut actions := []ContextAction{}
+	entry_copy := entry
+	actions << ContextAction{
+		label:   'Rename'
+		handler: fn [mut state, entry_copy] (mut e reactive.UiEvent) {
+			if e.kind != .mouse_down {
+				return
+			}
+			start_rename_prompt(mut state, entry_copy)
+		}
+	}
+	actions << ContextAction{
+		label:   'Delete'
+		handler: fn [mut state, entry_copy] (mut e reactive.UiEvent) {
+			if e.kind != .mouse_down {
+				return
+			}
+			hide_context_menu(mut state)
+			delete_entry_at(mut state, entry_copy)
+		}
+	}
+	if entry.typ == 'folder' {
+		folder_copy := entry
+		actions << ContextAction{
+			label:   'New File'
+			handler: fn [mut state, folder_copy] (mut e reactive.UiEvent) {
+				if e.kind != .mouse_down {
+					return
+				}
+				start_file_prompt(mut state, .create_file, folder_copy.full_path, '')
+			}
+		}
+		actions << ContextAction{
+			label:   'New Folder'
+			handler: fn [mut state, folder_copy] (mut e reactive.UiEvent) {
+				if e.kind != .mouse_down {
+					return
+				}
+				start_file_prompt(mut state, .create_folder, folder_copy.full_path, '')
+			}
+		}
+	}
+	menu_width := 20
+	menu_height := actions.len + 2
+	mut left := state.context_menu.x
+	mut top := state.context_menu.y
+	if left + menu_width > state.viewport_width {
+		left = state.viewport_width - menu_width
+	}
+	if left < 0 {
+		left = 0
+	}
+	if top + menu_height > state.viewport_height {
+		top = state.viewport_height - menu_height
+	}
+	if top < 0 {
+		top = 0
+	}
+	mut children := []reactive.VNode{}
+	for idx, action in actions {
+		children << reactive.text(reactive.NodeSpec{
+			tag:    'ctx-item-${idx}'
+			props:  reactive.TermProps{
+				top:    idx + 1
+				left:   1
+				width:  menu_width - 2
+				height: 1
+				text:   action.label
+			}
+			style:  context_item_style()
+			events: [action.handler]
+		})
+	}
+	return reactive.relative(reactive.NodeSpec{
+		tag:      'context-menu'
+		props:    reactive.TermProps{
+			left:   left
+			top:    top
+			width:  menu_width
+			height: menu_height
+		}
+		style:    context_menu_style()
+		children: children
+	})
+}
+
+fn prompt_style() reactive.TermStyleSpec {
+	return reactive.make_stylesheet(
+		background: reactive.TermColor{24, 32, 44}
+		foreground: reactive.TermColor{230, 230, 230}
+		border:     'box_light_rounded'
+		line:       'line_simple_simple'
+	)
+}
+
+fn build_prompt_overlay(state LayoutState) reactive.VNode {
+	mode_label := match state.prompt.mode {
+		.create_file { 'New File' }
+		.create_folder { 'New Folder' }
+		.rename_item { 'Rename Item' }
+		else { 'Input' }
+	}
+	mut width := if state.viewport_width > 40 {
+		state.viewport_width - 20
+	} else {
+		state.viewport_width - 4
+	}
+	if width < 20 {
+		width = state.viewport_width - 2
+	}
+	if width < 10 {
+		width = 10
+	}
+	mut left := (state.viewport_width - width) / 2
+	if left < 1 {
+		left = 1
+	}
+	height := 7
+	mut top := (state.viewport_height - height) / 2
+	if top < 1 {
+		top = 1
+	}
+	display_value := if state.prompt.value.len == 0 { '_' } else { state.prompt.value + '_' }
+	mut children := []reactive.VNode{}
+	children << reactive.text(reactive.NodeSpec{
+		tag:   'prompt-title'
+		props: reactive.TermProps{
+			top:  1
+			left: 2
+			text: mode_label
+		}
+		style: prompt_style()
+	})
+	children << reactive.text(reactive.NodeSpec{
+		tag:   'prompt-path'
+		props: reactive.TermProps{
+			top:  2
+			left: 2
+			text: 'In ${state.prompt.parent_dir}'
+		}
+		style: prompt_style()
+	})
+	children << reactive.text(reactive.NodeSpec{
+		tag:   'prompt-value'
+		props: reactive.TermProps{
+			top:  4
+			left: 2
+			text: display_value
+		}
+		style: prompt_style()
+	})
+	children << reactive.text(reactive.NodeSpec{
+		tag:   'prompt-help'
+		props: reactive.TermProps{
+			top:  5
+			left: 2
+			text: 'Enter to confirm • Esc to cancel'
+		}
+		style: prompt_style()
+	})
+	return reactive.relative(reactive.NodeSpec{
+		tag:      'prompt-overlay'
+		props:    reactive.TermProps{
+			left:   left
+			top:    top
+			width:  width
+			height: height
+		}
+		style:    prompt_style()
+		children: children
+	})
+}
+
+fn handle_root_event(mut state LayoutState, mut e reactive.UiEvent) {
+	if state.prompt.active {
+		if handle_prompt_input(mut state, mut e) {
+			return
+		}
+	}
+	if e.kind == .mouse_down && !e.mouse.buttons.right {
+		hide_context_menu(mut state)
+	}
+}
+
+fn tree_panel_event_handler(mut state LayoutState) reactive.UiEventHandler {
+	return fn [mut state] (mut e reactive.UiEvent) {
+		if state.prompt.active {
+			return
+		}
+		if e.kind == .mouse_move && e.mouse.wheel != 0 {
+			if state.tree_rect.contains_point(reactive.TermPoint{
+				x: e.mouse.x
+				y: e.mouse.y
+			})
+			{
+				adjust_tree_scroll(mut state, -e.mouse.wheel)
+			}
+		}
+		if e.kind == .key_down {
+			match int(e.key.code) {
+				int(tui.KeyCode.page_up) {
+					adjust_tree_scroll(mut state, -state.tree_visible_rows)
+				}
+				int(tui.KeyCode.page_down) {
+					adjust_tree_scroll(mut state, state.tree_visible_rows)
+				}
+				else {}
+			}
+		}
+	}
+}
+
+fn open_panel_event_handler(mut state LayoutState) reactive.UiEventHandler {
+	return fn [mut state] (mut e reactive.UiEvent) {
+		if state.prompt.active {
+			return
+		}
+		if e.kind == .mouse_move && e.mouse.wheel != 0 {
+			if state.open_list_rect.contains_point(reactive.TermPoint{
+				x: e.mouse.x
+				y: e.mouse.y
+			})
+			{
+				adjust_open_scroll(mut state, -e.mouse.wheel)
+			}
+		}
+		if e.kind == .key_down {
+			match int(e.key.code) {
+				int(tui.KeyCode.page_up) {
+					adjust_open_scroll(mut state, -state.open_visible_rows)
+				}
+				int(tui.KeyCode.page_down) {
+					adjust_open_scroll(mut state, state.open_visible_rows)
+				}
+				else {}
+			}
+		}
+	}
 }
 
 fn update_resize(mut state LayoutState, mut e reactive.UiEvent, force bool) {
@@ -102,9 +649,7 @@ fn track_pointer(mut state LayoutState, mut e reactive.UiEvent) {
 }
 
 fn read_file_preview(path string) []string {
-	content := os.read_bytes(path) or {
-		return ["Failed to open ${path}: ${err.msg()}"]
-	}
+	content := os.read_bytes(path) or { return ['Failed to open ${path}: ${err.msg()}'] }
 	return (content.bytestr()).split_into_lines()
 }
 
@@ -133,9 +678,12 @@ fn build_file_list_markup(mut state LayoutState, left_width int, main_height int
 	if available < 1 {
 		available = 1
 	}
+	state.tree_visible_rows = available
+	state.file_tree_scroll = clamp_scroll(state.file_tree_scroll, available, state.file_entries.len)
 	row_height := 1
 	mut row := 0
-	for idx, entry in state.file_entries {
+	for idx := state.file_tree_scroll; idx < state.file_entries.len; idx++ {
+		entry := state.file_entries[idx]
 		if row >= available {
 			break
 		}
@@ -158,9 +706,12 @@ fn build_file_list_markup(mut state LayoutState, left_width int, main_height int
 		}
 		mut fg := '#d0d0d0'
 		mut bg := '#1f2736'
-		if entry.typ == 'file' && entry.full_path == state.selected_file {
+		if entry.full_path == state.tree_selected_path {
 			fg = '#ffffff'
 			bg = '#2f3e5c'
+		} else if entry.typ == 'file' && entry.full_path == state.selected_file {
+			fg = '#f5f5f5'
+			bg = '#2a364c'
 		}
 		node_tag := 'entry-${idx}'
 		entry_copy := entry
@@ -172,6 +723,15 @@ fn build_file_list_markup(mut state LayoutState, left_width int, main_height int
 			if isnil(state.tree) {
 				return
 			}
+			state.tree_selected_path = entry_copy.full_path
+			if e.mouse.buttons.right && e.kind == .mouse_down {
+				show_context_menu(mut state, entry_copy, reactive.TermPoint{
+					x: e.mouse.x
+					y: e.mouse.y
+				})
+				return
+			}
+			hide_context_menu(mut state)
 			if entry_copy.typ == 'folder' {
 				state.tree.toggle(entry_copy.full_path)
 				refresh_file_entries(mut state)
@@ -187,20 +747,21 @@ fn build_file_list_markup(mut state LayoutState, left_width int, main_height int
 				add_open_file(mut state, entry_copy.full_path)
 			}
 		}
-		b.write_string("\n\t\t\t<text tag=\"${node_tag}\" onclick={" + handler_name + "} style=\"top:${line_top};left:${padding_left};width:${entry_width};height:1;fg:${fg};bg:${bg}\">")
+		b.write_string("\n\t\t\t<text tag=\"${node_tag}\" onmousedown={" + handler_name +
+			"} style=\"top:${line_top};left:${padding_left};width:${entry_width};height:1;fg:${fg};bg:${bg}\">")
 		b.write_string(label)
-		b.write_string("</text>")
+		b.write_string('</text>')
 		row++
 	}
 	if state.file_entries.len == 0 {
-		b.write_string("\n\t\t\t<text style=\"top:3;left:2;fg:#888888\">(no files)</text>")
+		b.write_string('\n\t\t\t<text style="top:3;left:2;fg:#888888">(no files)</text>')
 	}
 	return b.str()
 }
 
 fn truncate_line(line string, limit int) string {
 	if limit <= 0 {
-		return ""
+		return ''
 	}
 	if line.len <= limit {
 		return line
@@ -212,8 +773,8 @@ fn editor_background_style() reactive.TermStyleSpec {
 	return reactive.make_stylesheet(
 		background: editor_bg_color
 		foreground: editor_fg_color
-		border: 'empty'
-		line: 'empty'
+		border:     'empty'
+		line:       'empty'
 	)
 }
 
@@ -221,8 +782,8 @@ fn editor_selection_style() reactive.TermStyleSpec {
 	return reactive.make_stylesheet(
 		background: editor_selection_bg
 		foreground: editor_selection_fg
-		border: 'empty'
-		line: 'empty'
+		border:     'empty'
+		line:       'empty'
 	)
 }
 
@@ -230,8 +791,8 @@ fn editor_cursor_style() reactive.TermStyleSpec {
 	return reactive.make_stylesheet(
 		background: editor_cursor_bg
 		foreground: editor_cursor_fg
-		border: 'empty'
-		line: 'empty'
+		border:     'empty'
+		line:       'empty'
 	)
 }
 
@@ -242,11 +803,12 @@ fn refresh_file_entries(mut state LayoutState) {
 	state.file_entries = state.tree.flattened()
 }
 
+pub const spaces = [` `, `\t`, `\n`, `\r`, `\v`, `\f`]
 fn build_editor_view(mut state LayoutState, width int, height int, work_left int, main_top int) reactive.VNode {
 	state.editor_rect = reactive.TermRect{
-		x: work_left
-		y: main_top
-		width: width
+		x:      work_left
+		y:      main_top
+		width:  width
 		height: height
 	}
 	if isnil(state.buffer) {
@@ -258,51 +820,90 @@ fn build_editor_view(mut state LayoutState, width int, height int, work_left int
 		content_width = 1
 	}
 	viewport := editor.EditorViewport{
-		x: state.editor_view_x
-		y: state.editor_view_y
-		width: content_width
+		x:      state.editor_view_x
+		y:      state.editor_view_y
+		width:  content_width
 		height: height
 	}
 	slice := state.buffer.viewport_slice(viewport)
 	mut children := []reactive.VNode{}
 	children << reactive.rect(reactive.NodeSpec{
-		props: reactive.TermProps{ width: width, height: height }
+		props: reactive.TermProps{
+			width:  width
+			height: height
+		}
 		style: editor_background_style()
 	})
 	for idx, line in slice.lines {
 		mut left := 0
 		children << reactive.text(reactive.NodeSpec{
-			tag: 'editor-gutter'
-			props: reactive.TermProps{ top: idx, left: left, text: line.gutter }
+			tag:   'editor-gutter'
+			props: reactive.TermProps{
+				top:  idx
+				left: left
+				text: line.gutter
+			}
 			style: editor_background_style()
 		})
 		left += editor_gutter_chars
 		for seg in line.segments {
 			mut style := editor_background_style()
-			if seg.cursor {
-				style = editor_cursor_style()
-			} else if seg.selected {
+			if seg.selected {
 				style = editor_selection_style()
 			}
 			if seg.text.len == 0 {
 				continue
 			}
 			children << reactive.text(reactive.NodeSpec{
-				props: reactive.TermProps{ top: idx, left: left, text: seg.text }
+				props: reactive.TermProps{
+					top:  idx
+					left: left
+					text: seg.text
+				}
 				style: style
 			})
 			left += seg.text.len
 		}
 	}
+
+	if cursor := slice.cursor {
+		mut column := cursor.column
+		if column < 0 {
+			column = 0
+		}
+		mut overlay_char := '_'
+		if cursor.char.len > 0 {
+			mut runes := cursor.char.runes()
+			if runes.len > 0 {
+				if runes[0] in spaces {
+					overlay_char = '_'
+				} else {
+					overlay_char = runes[0].str()
+				}
+			}
+		}
+		children << reactive.text(reactive.NodeSpec{
+			tag:   'editor-cursor'
+			props: reactive.TermProps{
+				top:  cursor.line
+				left: editor_gutter_chars + column
+				text: overlay_char
+			}
+			style: editor_cursor_style()
+		})
+	}
 	editor_handler := fn [mut state, width, height, work_left, main_top] (mut e reactive.UiEvent) {
 		handle_editor_event(mut state, width, height, work_left, main_top, mut e)
 	}
 	return reactive.relative(reactive.NodeSpec{
-		tag: 'code-editor'
-		props: reactive.TermProps{ width: width, height: height }
-		style: editor_background_style()
+		tag:      'code-editor'
+		props:    reactive.TermProps{
+			width:  width
+			height: height
+		}
+		style:    editor_background_style()
 		children: children
-		events: [editor_handler]
+		events:   [editor_handler]
 	})
 }
 
@@ -312,6 +913,9 @@ fn editor_hit_test(rect reactive.TermRect, x int, y int) bool {
 
 fn handle_editor_event(mut state LayoutState, width int, height int, work_left int, main_top int, mut e reactive.UiEvent) {
 	if isnil(state.buffer) {
+		return
+	}
+	if state.prompt.active {
 		return
 	}
 	if e.kind == .mouse_down {
@@ -362,6 +966,9 @@ fn handle_editor_event(mut state LayoutState, width int, height int, work_left i
 
 fn handle_editor_key(mut state LayoutState, width int, height int, mut e reactive.UiEvent) {
 	if isnil(state.buffer) {
+		return
+	}
+	if state.prompt.active {
 		return
 	}
 	mut handled := false
@@ -425,6 +1032,10 @@ fn handle_editor_key(mut state LayoutState, width int, height int, mut e reactiv
 				state.buffer.select_all()
 				handled = true
 			}
+			int(tui.KeyCode.s) {
+				save_current_file(mut state)
+				handled = true
+			}
 			else {}
 		}
 	}
@@ -438,6 +1049,19 @@ fn handle_editor_key(mut state LayoutState, width int, height int, mut e reactiv
 	if handled {
 		ensure_cursor_visible(mut state, width, height)
 	}
+}
+
+fn save_current_file(mut state LayoutState) {
+	if isnil(state.buffer) || state.selected_file.len == 0 {
+		state.status_message = 'No file selected'
+		return
+	}
+	content := state.buffer.text()
+	os.write_file(state.selected_file, content) or {
+		state.status_message = 'Save failed: ${err.msg()}'
+		return
+	}
+	state.status_message = 'Saved ${os.file_name(state.selected_file)}'
 }
 
 fn editor_position_from_mouse(state LayoutState, mouse_x int, mouse_y int) editor.Position {
@@ -459,7 +1083,7 @@ fn editor_position_from_mouse(state LayoutState, mouse_x int, mouse_y int) edito
 	if column > line_len {
 		column = line_len
 	}
-	return editor.Position{ line, column }
+	return editor.Position{line, column}
 }
 
 fn ensure_cursor_visible(mut state LayoutState, width int, height int) {
@@ -501,8 +1125,14 @@ fn ensure_cursor_visible(mut state LayoutState, width int, height int) {
 fn open_files_component(mut state LayoutState, width int, height int) reactive.VNode {
 	mut b := strings.new_builder(128)
 	mut available := if height <= 0 { 1 } else { height }
+	state.open_visible_rows = available
+	state.open_files_scroll = clamp_scroll(state.open_files_scroll, available, state.open_files.len)
 	for idx, path in state.open_files {
-		if idx >= available {
+		if idx < state.open_files_scroll {
+			continue
+		}
+		row := idx - state.open_files_scroll
+		if row >= available {
 			break
 		}
 		display := escape_text(os.file_name(path))
@@ -514,14 +1144,16 @@ fn open_files_component(mut state LayoutState, width int, height int) reactive.V
 		if content_width < 1 {
 			content_width = width
 		}
-		b.write_string('\n\t<text tag="${node_tag}" onclick={' + handler_name + '} style="top:${idx + 1};left:2;width:${content_width};height:1;fg:${fg};bg:${bg}">')
+		b.write_string('\n\t<text tag="${node_tag}" onclick={' + handler_name +
+			'} style="top:${row + 1};left:2;width:${content_width};height:1;fg:${fg};bg:${bg}">')
 		b.write_string(display)
 		b.write_string('</text>')
 	}
 	if state.open_files.len == 0 {
 		b.write_string('\n\t<text style="top:1;left:2;fg:#888888">(no open files)</text>')
 	}
-	template := '<relative tag="open-files" style="width:{{width}};height:{{height}}">' + b.str() + '\n</relative>'
+	template := '<relative tag="open-files" style="width:{{width}};height:{{height}}">' + b.str() +
+		'\n</relative>'
 	mut handlers := map[string]reactive.UiEventHandler{}
 	for idx, path in state.open_files {
 		node_tag := 'open-${idx}'
@@ -529,7 +1161,9 @@ fn open_files_component(mut state LayoutState, width int, height int) reactive.V
 			if e.target_tag != node_tag {
 				return
 			}
+			hide_context_menu(mut state)
 			state.selected_file = path
+			state.tree_selected_path = path
 			if isnil(state.buffer) {
 				state.buffer = editor.new_text_buffer()
 			}
@@ -541,18 +1175,22 @@ fn open_files_component(mut state LayoutState, width int, height int) reactive.V
 		}
 	}
 	ctx := reactive.TemplateContext{
-		props: {
-			'width': itos(width)
+		props:    {
+			'width':  itos(width)
 			'height': itos(height)
 		}
 		handlers: handlers
 	}
-	return reactive.view_from_template(template, ctx) or {
+	mut view := reactive.view_from_template(template, ctx) or {
 		reactive.text(reactive.NodeSpec{
-			tag: 'open-files-error'
-			props: reactive.TermProps{ text: 'open files error: ' + err.msg() }
+			tag:   'open-files-error'
+			props: reactive.TermProps{
+				text: 'open files error: ' + err.msg()
+			}
 		})
 	}
+	view.events << open_panel_event_handler(mut state)
+	return view
 }
 
 fn file_list_component(mut state LayoutState, left_width int, main_height int) reactive.VNode {
@@ -561,25 +1199,48 @@ fn file_list_component(mut state LayoutState, left_width int, main_height int) r
 	template := r'
 <relative tag="file-list" style="width:{{width}};height:{{height}}">
 	<text style="top:1;left:2;fg:#9ddcff">Explorer</text>
+	<text tag="add-file" onclick={create_file} style="top:1;left:{{file_btn_left}};fg:#8de78d">+f</text>
+	<text tag="add-folder" onclick={create_folder} style="top:1;left:{{dir_btn_left}};fg:#8de78d">+d</text>
 	@@ITEMS@@
 </relative>
 '.trim_indent()
 	component_template := template.replace('@@ITEMS@@', items_markup)
+	local_handlers['create_file'] = fn [mut state] (mut e reactive.UiEvent) {
+		if e.kind != .mouse_down {
+			return
+		}
+		hide_context_menu(mut state)
+		start_file_prompt(mut state, .create_file, determine_creation_dir(state), '')
+	}
+	local_handlers['create_folder'] = fn [mut state] (mut e reactive.UiEvent) {
+		if e.kind != .mouse_down {
+			return
+		}
+		hide_context_menu(mut state)
+		start_file_prompt(mut state, .create_folder, determine_creation_dir(state), '')
+	}
+	btn_left := if left_width > 8 { left_width - 8 } else { 1 }
+	dir_left := if left_width > 4 { left_width - 4 } else { 2 }
 	ctx := reactive.TemplateContext{
-		props: {
-			'width': itos(left_width)
-			'height': itos(main_height)
+		props:    {
+			'width':         itos(left_width)
+			'height':        itos(main_height)
+			'file_btn_left': itos(btn_left)
+			'dir_btn_left':  itos(dir_left)
 		}
 		handlers: local_handlers
 	}
-	return reactive.view_from_template(component_template, ctx) or {
+	mut view := reactive.view_from_template(component_template, ctx) or {
 		reactive.text(reactive.NodeSpec{
-			tag: 'file-list-error'
-			props: reactive.TermProps{ text: 'file list error: ' + err.msg() }
+			tag:   'file-list-error'
+			props: reactive.TermProps{
+				text: 'file list error: ' + err.msg()
+			}
 		})
 	}
+	view.events << tree_panel_event_handler(mut state)
+	return view
 }
-
 
 const layout_template = r'
 <relative tag="root" style="width:{{viewport_width}};height:{{viewport_height}};bg:#181c20" onmousemove={resize_tracker} onmouseup={stop_resize}>
@@ -607,10 +1268,14 @@ const layout_template = r'
 </relative>
 '.trim_indent()
 
-
 fn build_layout_view(mut state LayoutState) reactive.VNode {
 	viewport_width := state.viewport_width
 	viewport_height := state.viewport_height
+	now_ms := time.now().unix_milli()
+	if state.last_tree_refresh_ms == 0
+		|| now_ms - state.last_tree_refresh_ms > file_refresh_interval_ms {
+		refresh_after_fs_change(mut state)
+	}
 	mut status_top := viewport_height - status_bar_height
 	if status_top < top_bar_height {
 		status_top = top_bar_height
@@ -650,25 +1315,40 @@ fn build_layout_view(mut state LayoutState) reactive.VNode {
 		tree_panel_height = min_tree
 	}
 	main_top := top_bar_height
+	state.open_list_rect = reactive.TermRect{
+		x:      0
+		y:      main_top
+		width:  left_width
+		height: open_panel_height
+	}
+	state.tree_rect = reactive.TermRect{
+		x:      0
+		y:      main_top + open_panel_height + 1
+		width:  left_width
+		height: tree_panel_height
+	}
 	mut props := map[string]string{}
-	props["viewport_width"] = itos(viewport_width)
-	props["viewport_height"] = itos(viewport_height)
-	props["top_bar_height"] = itos(top_bar_height)
-	props["status_height"] = itos(status_bar_height)
-	props["status_top"] = itos(status_top)
-	props["main_top"] = itos(top_bar_height)
-	props["main_height"] = itos(main_height)
-	props["left_width"] = itos(left_width)
-	props["divider_left"] = itos(left_width)
-	props["divider_width"] = itos(divider_width)
-	props["work_left"] = itos(work_left)
-	props["work_width"] = itos(work_width)
-	props["open_panel_height"] = itos(open_panel_height)
-	props["open_panel_height_plus_one"] = itos(open_panel_height + 1)
-	props["tree_panel_height"] = itos(tree_panel_height)
-	status_hover := if state.hover_tag.len > 0 { state.hover_tag } else { "none" }
-	status_line := "Panel ${left_width}px | Editor ${work_width}px | Mouse ${state.mouse_x},${state.mouse_y} | Hover ${status_hover}"
-	props["status_text"] = escape_text(status_line)
+	props['viewport_width'] = itos(viewport_width)
+	props['viewport_height'] = itos(viewport_height)
+	props['top_bar_height'] = itos(top_bar_height)
+	props['status_height'] = itos(status_bar_height)
+	props['status_top'] = itos(status_top)
+	props['main_top'] = itos(top_bar_height)
+	props['main_height'] = itos(main_height)
+	props['left_width'] = itos(left_width)
+	props['divider_left'] = itos(left_width)
+	props['divider_width'] = itos(divider_width)
+	props['work_left'] = itos(work_left)
+	props['work_width'] = itos(work_width)
+	props['open_panel_height'] = itos(open_panel_height)
+	props['open_panel_height_plus_one'] = itos(open_panel_height + 1)
+	props['tree_panel_height'] = itos(tree_panel_height)
+	status_hover := if state.hover_tag.len > 0 { state.hover_tag } else { 'none' }
+	mut status_line := 'Panel ${left_width}px | Editor ${work_width}px | Mouse ${state.mouse_x},${state.mouse_y} | Hover ${status_hover}'
+	if state.status_message.len > 0 {
+		status_line += ' | ${state.status_message}'
+	}
+	props['status_text'] = escape_text(status_line)
 	mut handlers := map[string]reactive.UiEventHandler{}
 	handlers['start_resize'] = fn [mut state] (mut e reactive.UiEvent) {
 		track_pointer(mut state, mut e)
@@ -681,7 +1361,8 @@ fn build_layout_view(mut state LayoutState) reactive.VNode {
 		track_pointer(mut state, mut e)
 		if e.target_tag == 'left-split-divider' {
 			state.resizing_left_split = true
-			update_left_split(mut state, e.mouse.y, main_top, left_panel_height, min_open, min_tree)
+			update_left_split(mut state, e.mouse.y, main_top, left_panel_height, min_open,
+				min_tree)
 		}
 	}
 	handlers['resize_tracker'] = fn [mut state, main_top, left_panel_height, min_open, min_tree] (mut e reactive.UiEvent) {
@@ -690,7 +1371,8 @@ fn build_layout_view(mut state LayoutState) reactive.VNode {
 			update_resize(mut state, mut e, false)
 		}
 		if state.resizing_left_split {
-			update_left_split(mut state, e.mouse.y, main_top, left_panel_height, min_open, min_tree)
+			update_left_split(mut state, e.mouse.y, main_top, left_panel_height, min_open,
+				min_tree)
 		}
 	}
 	handlers['stop_resize'] = fn [mut state] (mut e reactive.UiEvent) {
@@ -705,34 +1387,54 @@ fn build_layout_view(mut state LayoutState) reactive.VNode {
 	}
 	open_panel_view := open_files_component(mut state, left_width, open_panel_height)
 	file_tree_view := file_list_component(mut state, left_width, tree_panel_height)
-	work_panel_view := build_editor_view(mut state, work_width, main_height, work_left, main_top)
+	work_panel_view := build_editor_view(mut state, work_width, main_height, work_left,
+		main_top)
 	mut named_children := map[string][]reactive.VNode{}
 	named_children['open_files'] = [open_panel_view]
 	named_children['file_tree'] = [file_tree_view]
 	named_children['work_panel'] = [work_panel_view]
 	ctx := reactive.TemplateContext{
-		props: props
-		handlers: handlers
+		props:          props
+		handlers:       handlers
 		named_children: named_children
 	}
-	return reactive.view_from_template(layout_template, ctx) or {
+	mut view := reactive.view_from_template(layout_template, ctx) or {
 		reactive.relative(reactive.NodeSpec{
-			tag: "error"
-			props: reactive.TermProps{ width: viewport_width, height: viewport_height }
-			children: [reactive.text(reactive.NodeSpec{
-				tag: "error-text"
-				props: reactive.TermProps{ text: "template error: " + err.msg() }
-			})]
+			tag:      'error'
+			props:    reactive.TermProps{
+				width:  viewport_width
+				height: viewport_height
+			}
+			children: [
+				reactive.text(reactive.NodeSpec{
+					tag:   'error-text'
+					props: reactive.TermProps{
+						text: 'template error: ' + err.msg()
+					}
+				}),
+			]
 		})
 	}
+	view.events << fn [mut state] (mut e reactive.UiEvent) {
+		handle_root_event(mut state, mut e)
+	}
+	if state.context_menu.visible {
+		view.children << build_context_menu_view(mut state)
+	}
+	if state.prompt.active {
+		view.children << build_prompt_overlay(state)
+	}
+	return view
 }
 
 fn main() {
 	mut state := LayoutState{}
 	state.buffer = editor.new_text_buffer()
 	state.tree = new_file_tree('.')
+	state.tree_selected_path = state.tree.root
 	refresh_file_entries(mut state)
-	state.hover_tag = "none"
+	state.hover_tag = 'none'
+	state.last_tree_refresh_ms = time.now().unix_milli()
 	root := fn [mut state] () reactive.VNode {
 		return build_layout_view(mut state)
 	}
