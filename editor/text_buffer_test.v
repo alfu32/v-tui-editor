@@ -40,7 +40,7 @@ fn test_viewport_slice_marks_cursor_and_selection() {
 	}
 	slice := buf.viewport_slice(view)
 	assert slice.lines.len == 3
-	assert slice.lines[1].gutter == '│     2│ '
+	assert slice.lines[1].gutter == '     2  '
 	mut has_selected := false
 	for seg in slice.lines[1].segments {
 		if seg.selected {

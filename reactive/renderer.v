@@ -796,9 +796,9 @@ fn (mut r Renderer) update_raw_input(e &tui.Event) {
 	// r.ctx.viewport.width = e.width
 	// r.ctx.viewport.height = e.height
 	if e.direction == .up {
-		r.last_mouse.wheel = 1
-	} else if e.direction == .down {
 		r.last_mouse.wheel = -1
+	} else if e.direction == .down {
+		r.last_mouse.wheel = 1
 	} else {
 		r.last_mouse.wheel = 0
 	}
@@ -814,9 +814,9 @@ fn (mut r Renderer) update_raw_input(e &tui.Event) {
 		}
 		.mouse_scroll {
 			if e.direction == .up {
-				r.last_mouse.wheel = 1
-			} else if e.direction == .down {
 				r.last_mouse.wheel = -1
+			} else if e.direction == .down {
+				r.last_mouse.wheel = 1
 			} else {
 				r.last_mouse.wheel = 0
 			}

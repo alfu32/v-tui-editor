@@ -10,7 +10,8 @@ const status_bar_height = 2
 const divider_width = 1
 const min_left_width = 12
 const min_right_width = 20
-const editor_gutter_chars = editor.default_gutter_width + 3
+const editor_gutter_chars = editor.default_gutter_width + 2
+const whitespace_runes = [` `, `\t`, `\n`, `\r`, `\v`, `\f`]
 const editor_bg_color = reactive.TermColor{16, 20, 28}
 const editor_fg_color = reactive.TermColor{210, 210, 210}
 const editor_cursor_bg = reactive.TermColor{210, 210, 210}
@@ -88,6 +89,8 @@ mut:
 	open_list_rect       reactive.TermRect
 	tree_visible_rows    int
 	open_visible_rows    int
+	editor_follow_cursor bool = true
+	buffer_dirty         bool
 }
 
 fn clamp_left_width(width int, viewport_width int) int {
@@ -161,6 +164,43 @@ fn determine_creation_dir(state LayoutState) string {
 		return state.tree.root
 	}
 	return dir
+}
+
+fn clamp_editor_view(mut state LayoutState, width int, height int) {
+	mut visible_lines := height
+	if visible_lines <= 0 {
+		visible_lines = 1
+	}
+	mut max_line := state.buffer.lines.len - visible_lines
+	if max_line < 0 {
+		max_line = 0
+	}
+	if state.editor_view_y < 0 {
+		state.editor_view_y = 0
+	}
+	if state.editor_view_y > max_line {
+		state.editor_view_y = max_line
+	}
+	mut content_width := width - editor_gutter_chars
+	if content_width <= 0 {
+		content_width = 1
+	}
+	if state.editor_view_x < 0 {
+		state.editor_view_x = 0
+	}
+	mut max_column := 0
+	for line in state.buffer.lines {
+		if line.len > max_column {
+			max_column = line.len
+		}
+	}
+	mut max_view := max_column - content_width
+	if max_view < 0 {
+		max_view = 0
+	}
+	if state.editor_view_x > max_view {
+		state.editor_view_x = max_view
+	}
 }
 
 fn start_file_prompt(mut state LayoutState, mode FilePromptMode, parent string, initial string) {
@@ -351,22 +391,85 @@ fn refresh_after_fs_change(mut state LayoutState) {
 	state.last_tree_refresh_ms = time.now().unix_milli()
 }
 
-fn context_menu_style() reactive.TermStyleSpec {
+fn dialog_box_style() reactive.TermStyleSpec {
 	return reactive.make_stylesheet(
-		background: reactive.TermColor{35, 40, 56}
+		background: reactive.TermColor{30, 36, 50}
 		foreground: reactive.TermColor{235, 235, 235}
 		border:     'box_light_rounded'
 		line:       'line_simple_simple'
 	)
 }
 
-fn context_item_style() reactive.TermStyleSpec {
+fn dialog_text_style() reactive.TermStyleSpec {
 	return reactive.make_stylesheet(
-		background: reactive.TermColor{45, 52, 72}
+		background: reactive.TermColor{30, 36, 50}
 		foreground: reactive.TermColor{230, 230, 230}
 		border:     'empty'
 		line:       'empty'
 	)
+}
+
+fn button_style() reactive.TermStyleSpec {
+	return reactive.make_stylesheet(
+		background: reactive.TermColor{70, 90, 130}
+		foreground: reactive.TermColor{255, 255, 255}
+		border:     'box_light_rounded'
+		line:       'line_simple_simple'
+	)
+}
+
+fn button_text_style() reactive.TermStyleSpec {
+	return reactive.make_stylesheet(
+		background: reactive.TermColor{70, 90, 130}
+		foreground: reactive.TermColor{255, 255, 255}
+		border:     'empty'
+		line:       'empty'
+	)
+}
+
+fn context_menu_style() reactive.TermStyleSpec {
+	return dialog_box_style()
+}
+
+fn context_item_style() reactive.TermStyleSpec {
+	return reactive.make_stylesheet(
+		background: reactive.TermColor{42, 50, 70}
+		foreground: reactive.TermColor{240, 240, 240}
+		border:     'empty'
+		line:       'empty'
+	)
+}
+
+fn make_button(tag string, left int, top int, label string, handler reactive.UiEventHandler) reactive.VNode {
+	mut width := label.len + 4
+	if width < 8 {
+		width = 8
+	}
+	mut text_left := (width - label.len) / 2
+	if text_left < 1 {
+		text_left = 1
+	}
+	return reactive.rect(reactive.NodeSpec{
+		tag:      tag
+		props:    reactive.TermProps{
+			left:   left
+			top:    top
+			width:  width
+			height: 3
+		}
+		style:    button_style()
+		events:   [handler]
+		children: [
+			reactive.text(reactive.NodeSpec{
+				props: reactive.TermProps{
+					top:  1
+					left: text_left
+					text: label
+				}
+				style: button_text_style()
+			}),
+		]
+	})
 }
 
 fn build_context_menu_view(mut state LayoutState) reactive.VNode {
@@ -449,7 +552,7 @@ fn build_context_menu_view(mut state LayoutState) reactive.VNode {
 			events: [action.handler]
 		})
 	}
-	return reactive.relative(reactive.NodeSpec{
+	return reactive.rect(reactive.NodeSpec{
 		tag:      'context-menu'
 		props:    reactive.TermProps{
 			left:   left
@@ -463,15 +566,10 @@ fn build_context_menu_view(mut state LayoutState) reactive.VNode {
 }
 
 fn prompt_style() reactive.TermStyleSpec {
-	return reactive.make_stylesheet(
-		background: reactive.TermColor{24, 32, 44}
-		foreground: reactive.TermColor{230, 230, 230}
-		border:     'box_light_rounded'
-		line:       'line_simple_simple'
-	)
+	return dialog_text_style()
 }
 
-fn build_prompt_overlay(state LayoutState) reactive.VNode {
+fn build_prompt_overlay(mut state LayoutState) reactive.VNode {
 	mode_label := match state.prompt.mode {
 		.create_file { 'New File' }
 		.create_folder { 'New Folder' }
@@ -493,7 +591,7 @@ fn build_prompt_overlay(state LayoutState) reactive.VNode {
 	if left < 1 {
 		left = 1
 	}
-	height := 7
+	height := 9
 	mut top := (state.viewport_height - height) / 2
 	if top < 1 {
 		top = 1
@@ -536,7 +634,30 @@ fn build_prompt_overlay(state LayoutState) reactive.VNode {
 		}
 		style: prompt_style()
 	})
-	return reactive.relative(reactive.NodeSpec{
+	confirm_label := match state.prompt.mode {
+		.rename_item { 'Rename' }
+		.create_file { 'Create' }
+		.create_folder { 'Create' }
+		else { 'OK' }
+	}
+	mut button_top := height - 4
+	if button_top < 1 {
+		button_top = 1
+	}
+	cancel_left := if width > 22 { width - 22 } else { 2 }
+	confirm_left := if width > 12 { width - 12 } else { cancel_left + 10 }
+	children << make_button('prompt-cancel', cancel_left, button_top, 'Cancel', fn [mut state] (mut e reactive.UiEvent) {
+		if e.kind == .mouse_down {
+			cancel_prompt(mut state)
+		}
+	})
+	children << make_button('prompt-confirm', confirm_left, button_top, confirm_label,
+		fn [mut state] (mut e reactive.UiEvent) {
+		if e.kind == .mouse_down {
+			complete_prompt(mut state)
+		}
+	})
+	return reactive.rect(reactive.NodeSpec{
 		tag:      'prompt-overlay'
 		props:    reactive.TermProps{
 			left:   left
@@ -544,7 +665,7 @@ fn build_prompt_overlay(state LayoutState) reactive.VNode {
 			width:  width
 			height: height
 		}
-		style:    prompt_style()
+		style:    dialog_box_style()
 		children: children
 	})
 }
@@ -571,7 +692,7 @@ fn tree_panel_event_handler(mut state LayoutState) reactive.UiEventHandler {
 				y: e.mouse.y
 			})
 			{
-				adjust_tree_scroll(mut state, -e.mouse.wheel)
+				adjust_tree_scroll(mut state, e.mouse.wheel)
 			}
 		}
 		if e.kind == .key_down {
@@ -599,7 +720,7 @@ fn open_panel_event_handler(mut state LayoutState) reactive.UiEventHandler {
 				y: e.mouse.y
 			})
 			{
-				adjust_open_scroll(mut state, -e.mouse.wheel)
+				adjust_open_scroll(mut state, e.mouse.wheel)
 			}
 		}
 		if e.kind == .key_down {
@@ -657,19 +778,10 @@ fn add_open_file(mut state LayoutState, path string) {
 	if path.len == 0 {
 		return
 	}
-	mut existing_index := -1
-	for idx, value in state.open_files {
-		if value == path {
-			existing_index = idx
-			break
-		}
+	if path in state.open_files {
+		return
 	}
-	if existing_index == -1 {
-		state.open_files.prepend(path)
-	} else if existing_index > 0 {
-		state.open_files.delete(existing_index)
-		state.open_files.prepend(path)
-	}
+	state.open_files << path
 }
 
 fn build_file_list_markup(mut state LayoutState, left_width int, main_height int, mut handlers map[string]reactive.UiEventHandler) string {
@@ -736,14 +848,17 @@ fn build_file_list_markup(mut state LayoutState, left_width int, main_height int
 				state.tree.toggle(entry_copy.full_path)
 				refresh_file_entries(mut state)
 			} else {
+				autosave_current_file(mut state)
 				state.selected_file = entry_copy.full_path
 				if isnil(state.buffer) {
 					state.buffer = editor.new_text_buffer()
 				}
 				text := os.read_bytes(entry_copy.full_path) or { []u8{} }
 				state.buffer.load_text(text.bytestr())
+				state.buffer_dirty = false
 				state.editor_view_y = 0
 				state.editor_view_x = 0
+				state.editor_follow_cursor = true
 				add_open_file(mut state, entry_copy.full_path)
 			}
 		}
@@ -778,6 +893,15 @@ fn editor_background_style() reactive.TermStyleSpec {
 	)
 }
 
+fn editor_gutter_background_style() reactive.TermStyleSpec {
+	return reactive.make_stylesheet(
+		background: editor_bg_color.lighter(10)
+		foreground: editor_fg_color
+		border:     'empty'
+		line:       'empty'
+	)
+}
+
 fn editor_selection_style() reactive.TermStyleSpec {
 	return reactive.make_stylesheet(
 		background: editor_selection_bg
@@ -804,6 +928,7 @@ fn refresh_file_entries(mut state LayoutState) {
 }
 
 pub const spaces = [` `, `\t`, `\n`, `\r`, `\v`, `\f`]
+
 fn build_editor_view(mut state LayoutState, width int, height int, work_left int, main_top int) reactive.VNode {
 	state.editor_rect = reactive.TermRect{
 		x:      work_left
@@ -814,7 +939,11 @@ fn build_editor_view(mut state LayoutState, width int, height int, work_left int
 	if isnil(state.buffer) {
 		state.buffer = editor.new_text_buffer()
 	}
-	ensure_cursor_visible(mut state, width, height)
+	if state.editor_follow_cursor {
+		ensure_cursor_visible(mut state, width, height)
+	} else {
+		clamp_editor_view(mut state, width, height)
+	}
 	mut content_width := width - editor_gutter_chars
 	if content_width < 1 {
 		content_width = 1
@@ -843,7 +972,7 @@ fn build_editor_view(mut state LayoutState, width int, height int, work_left int
 				left: left
 				text: line.gutter
 			}
-			style: editor_background_style()
+			style: editor_gutter_background_style()
 		})
 		left += editor_gutter_chars
 		for seg in line.segments {
@@ -875,9 +1004,7 @@ fn build_editor_view(mut state LayoutState, width int, height int, work_left int
 		if cursor.char.len > 0 {
 			mut runes := cursor.char.runes()
 			if runes.len > 0 {
-				if runes[0] in spaces {
-					overlay_char = '_'
-				} else {
+				if runes[0] !in whitespace_runes {
 					overlay_char = runes[0].str()
 				}
 			}
@@ -923,6 +1050,7 @@ fn handle_editor_event(mut state LayoutState, width int, height int, work_left i
 			state.editor_focused = true
 			pos := editor_position_from_mouse(state, e.mouse.x, e.mouse.y)
 			state.buffer.start_selection(pos)
+			state.editor_follow_cursor = true
 			state.editor_dragging = e.mouse.buttons.left
 			ensure_cursor_visible(mut state, width, height)
 		} else {
@@ -932,17 +1060,9 @@ fn handle_editor_event(mut state LayoutState, width int, height int, work_left i
 	}
 	if e.kind == .mouse_move {
 		if e.mouse.wheel != 0 && editor_hit_test(state.editor_rect, e.mouse.x, e.mouse.y) {
-			state.editor_view_y -= e.mouse.wheel
-			mut max_line := state.buffer.lines.len - height
-			if max_line < 0 {
-				max_line = 0
-			}
-			if state.editor_view_y < 0 {
-				state.editor_view_y = 0
-			}
-			if state.editor_view_y > max_line {
-				state.editor_view_y = max_line
-			}
+			state.editor_follow_cursor = false
+			state.editor_view_y += e.mouse.wheel
+			clamp_editor_view(mut state, width, height)
 		}
 		if state.editor_dragging && e.mouse.buttons.left {
 			pos := editor_position_from_mouse(state, e.mouse.x, e.mouse.y)
@@ -961,6 +1081,7 @@ fn handle_editor_event(mut state LayoutState, width int, height int, work_left i
 	}
 	if e.kind == .key_down && state.editor_focused {
 		handle_editor_key(mut state, width, height, mut e)
+		state.editor_follow_cursor = true
 	}
 }
 
@@ -972,6 +1093,7 @@ fn handle_editor_key(mut state LayoutState, width int, height int, mut e reactiv
 		return
 	}
 	mut handled := false
+	mut content_changed := false
 	ctrl := e.key.ctrl
 	shift := e.key.shift
 	code := int(e.key.code)
@@ -1003,14 +1125,17 @@ fn handle_editor_key(mut state LayoutState, width int, height int, mut e reactiv
 		int(tui.KeyCode.enter) {
 			state.buffer.insert_newline()
 			handled = true
+			content_changed = true
 		}
 		int(tui.KeyCode.backspace) {
 			state.buffer.delete_backspace()
 			handled = true
+			content_changed = true
 		}
 		int(tui.KeyCode.delete) {
 			state.buffer.delete_forward()
 			handled = true
+			content_changed = true
 		}
 		else {}
 	}
@@ -1021,12 +1146,15 @@ fn handle_editor_key(mut state LayoutState, width int, height int, mut e reactiv
 				handled = true
 			}
 			int(tui.KeyCode.x) {
-				state.buffer.cut_selection()
-				handled = true
+				if state.buffer.cut_selection() {
+					content_changed = true
+					handled = true
+				}
 			}
 			int(tui.KeyCode.v) {
 				state.buffer.paste_clipboard()
 				handled = true
+				content_changed = true
 			}
 			int(tui.KeyCode.a) {
 				state.buffer.select_all()
@@ -1044,10 +1172,14 @@ fn handle_editor_key(mut state LayoutState, width int, height int, mut e reactiv
 		if ch.len > 0 && ch[0] >= 32 {
 			state.buffer.insert_text(ch)
 			handled = true
+			content_changed = true
 		}
 	}
 	if handled {
 		ensure_cursor_visible(mut state, width, height)
+	}
+	if content_changed {
+		state.buffer_dirty = true
 	}
 }
 
@@ -1062,6 +1194,13 @@ fn save_current_file(mut state LayoutState) {
 		return
 	}
 	state.status_message = 'Saved ${os.file_name(state.selected_file)}'
+	state.buffer_dirty = false
+}
+
+fn autosave_current_file(mut state LayoutState) {
+	if state.buffer_dirty {
+		save_current_file(mut state)
+	}
 }
 
 fn editor_position_from_mouse(state LayoutState, mouse_x int, mouse_y int) editor.Position {
@@ -1087,10 +1226,7 @@ fn editor_position_from_mouse(state LayoutState, mouse_x int, mouse_y int) edito
 }
 
 fn ensure_cursor_visible(mut state LayoutState, width int, height int) {
-	mut visible_lines := height
-	if visible_lines <= 0 {
-		visible_lines = 1
-	}
+	mut visible_lines := if height > 0 { height } else { 1 }
 	mut max_line := state.buffer.lines.len - visible_lines
 	if max_line < 0 {
 		max_line = 0
@@ -1100,12 +1236,6 @@ fn ensure_cursor_visible(mut state LayoutState, width int, height int) {
 	}
 	if state.buffer.cursor.line >= state.editor_view_y + visible_lines {
 		state.editor_view_y = state.buffer.cursor.line - visible_lines + 1
-	}
-	if state.editor_view_y < 0 {
-		state.editor_view_y = 0
-	}
-	if state.editor_view_y > max_line {
-		state.editor_view_y = max_line
 	}
 	mut content_width := width - editor_gutter_chars
 	if content_width <= 0 {
@@ -1117,9 +1247,7 @@ fn ensure_cursor_visible(mut state LayoutState, width int, height int) {
 	if state.buffer.cursor.column >= state.editor_view_x + content_width {
 		state.editor_view_x = state.buffer.cursor.column - content_width + 1
 	}
-	if state.editor_view_x < 0 {
-		state.editor_view_x = 0
-	}
+	clamp_editor_view(mut state, width, height)
 }
 
 fn open_files_component(mut state LayoutState, width int, height int) reactive.VNode {
@@ -1162,6 +1290,7 @@ fn open_files_component(mut state LayoutState, width int, height int) reactive.V
 				return
 			}
 			hide_context_menu(mut state)
+			autosave_current_file(mut state)
 			state.selected_file = path
 			state.tree_selected_path = path
 			if isnil(state.buffer) {
@@ -1169,8 +1298,10 @@ fn open_files_component(mut state LayoutState, width int, height int) reactive.V
 			}
 			text := os.read_bytes(path) or { []u8{} }
 			state.buffer.load_text(text.bytestr())
+			state.buffer_dirty = false
 			state.editor_view_y = 0
 			state.editor_view_x = 0
+			state.editor_follow_cursor = true
 			add_open_file(mut state, path)
 		}
 	}
@@ -1245,7 +1376,8 @@ fn file_list_component(mut state LayoutState, left_width int, main_height int) r
 const layout_template = r'
 <relative tag="root" style="width:{{viewport_width}};height:{{viewport_height}};bg:#181c20" onmousemove={resize_tracker} onmouseup={stop_resize}>
 	<rect tag="top-bar" style="width:{{viewport_width}};height:{{top_bar_height}};bg:#2b344d">
-		<text style="top:1;left:2;fg:#f0f0f0">V Reactive Workspace</text>
+		<text style="top:1;left:2;fg:#f0f0f0">{{title_text}}</text>
+		<text tag="close-btn" onclick={close_app} style="top:1;left:{{close_left}};fg:#ff8f8f">[X]</text>
 	</rect>
 	<rect tag="status-bar" style="top:{{status_top}};width:{{viewport_width}};height:{{status_height}};bg:#222730">
 		<text style="top:1;left:2;fg:#c0c0c0">{{status_text}}</text>
@@ -1349,6 +1481,18 @@ fn build_layout_view(mut state LayoutState) reactive.VNode {
 		status_line += ' | ${state.status_message}'
 	}
 	props['status_text'] = escape_text(status_line)
+	mut title := 'V Reactive Workspace'
+	if state.selected_file.len > 0 {
+		title += ' - ${state.selected_file}'
+	} else if state.tree != unsafe { nil } {
+		title += ' - ${state.tree.root}'
+	}
+	mut close_left := viewport_width - 5
+	if close_left < 2 {
+		close_left = 2
+	}
+	props['title_text'] = escape_text(title)
+	props['close_left'] = itos(close_left)
 	mut handlers := map[string]reactive.UiEventHandler{}
 	handlers['start_resize'] = fn [mut state] (mut e reactive.UiEvent) {
 		track_pointer(mut state, mut e)
@@ -1383,6 +1527,11 @@ fn build_layout_view(mut state LayoutState) reactive.VNode {
 		}
 		if state.resizing_left_split {
 			state.resizing_left_split = false
+		}
+	}
+	handlers['close_app'] = fn [mut state] (mut e reactive.UiEvent) {
+		if e.kind == .mouse_down {
+			e.renderer.app.will_exit(0)
 		}
 	}
 	open_panel_view := open_files_component(mut state, left_width, open_panel_height)
@@ -1422,7 +1571,7 @@ fn build_layout_view(mut state LayoutState) reactive.VNode {
 		view.children << build_context_menu_view(mut state)
 	}
 	if state.prompt.active {
-		view.children << build_prompt_overlay(state)
+		view.children << build_prompt_overlay(mut state)
 	}
 	return view
 }
@@ -1430,6 +1579,7 @@ fn build_layout_view(mut state LayoutState) reactive.VNode {
 fn main() {
 	mut state := LayoutState{}
 	state.buffer = editor.new_text_buffer()
+	state.buffer_dirty = false
 	state.tree = new_file_tree('.')
 	state.tree_selected_path = state.tree.root
 	refresh_file_entries(mut state)

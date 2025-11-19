@@ -451,7 +451,7 @@ fn (b TextBuffer) gutter_text(line_idx int) string {
 	} else if num.len < default_gutter_width {
 		num = ' '.repeat(default_gutter_width - num.len) + num
 	}
-	return '│${num}│ '
+	return '${num}  '
 }
 
 fn (mut b TextBuffer) move_cursor_to(pos Position, expand bool) {
