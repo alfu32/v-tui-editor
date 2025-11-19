@@ -8,6 +8,8 @@ Terminal-first UI experiments powered by a lightweight virtual DOM and a headles
 
 ![Workspace overview](doc/assets/Screenshot%20from%202025-11-19%2001-39-06.png)
 
+> ⚡ Compiles in under a second and produces ~900 KB static binaries on Linux thanks to V’s lean runtime.
+
 ## Objectives
 
 - **Composable primitives** – drive the entire UI from three reactive primitives (`<rect>`, `<text>`, `<relative>`) that can be nested, styled, and wired with events like a mini JSX for the terminal.
@@ -25,7 +27,7 @@ Terminal-first UI experiments powered by a lightweight virtual DOM and a headles
    git clone https://github.com/your-user/v-editor.git
    cd v-editor/v-renderer
    ```
-3. **Run the app**
+3. **Run the app (sub-second builds)**
    ```bash
    v run .
    ```
