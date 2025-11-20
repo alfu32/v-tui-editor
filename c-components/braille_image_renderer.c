@@ -89,14 +89,21 @@ int main(int argc, char **argv) {
                     int gray = (r + g + b) / 3;
 
                     int bit_index = (dx == 0 ? 0 : 3) + dy;
-                    if (gray < threshold)
-                        dots |= (1 << bit_index);
-
                     if (use_color) {
+                        // No thresholding. No per-dot decisions.
+                        // We accumulate color only.
                         sum_r += r;
                         sum_g += g;
                         sum_b += b;
                         samples++;
+
+                        // Full braille cell: all 8 dots ON
+                        dots = 0xFF;
+                    } else {
+                        // Grayscale mode = thresholded braille
+                        int gray = (r + g + b) / 3;
+                        if (gray < threshold)
+                            dots |= (1 << bit_index);
                     }
                 }
             }
@@ -107,6 +114,15 @@ int main(int argc, char **argv) {
                 int avg_r = sum_r / samples;
                 int avg_g = sum_g / samples;
                 int avg_b = sum_b / samples;
+
+                int indx=(avg_r+avg_g+avg_b)/184;
+
+                // ░  light shade   (25%)
+                // ▒  medium shade  (50%)
+                // ▓  dark shade    (75%)
+                // █  full          (100%)
+                //wchar_t* chars="░▒▓█";
+                //ch = chars[indx%4];
 
                 printf("\x1b[38;2;%d;%d;%dm%lc\x1b[0m",
                         avg_r, avg_g, avg_b, ch);
