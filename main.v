@@ -5,38 +5,6 @@ import term.ui as tui
 import editor
 import time
 
-const top_bar_height = 3
-const status_bar_height = 1
-const divider_width = 1
-const min_left_width = 12
-const min_right_width = 20
-const editor_gutter_chars = editor.default_gutter_width + 2
-const whitespace_runes = [` `, `\t`, `\n`, `\r`, `\v`, `\f`]
-const editor_bg_color = reactive.TermColor{16, 20, 28}
-const editor_fg_color = reactive.TermColor{210, 210, 210}
-const editor_cursor_bg = reactive.TermColor{210, 210, 210}
-const editor_cursor_fg = reactive.TermColor{20, 24, 32}
-const editor_selection_bg = reactive.TermColor{60, 80, 120}
-const editor_selection_fg = reactive.TermColor{255, 255, 255}
-const scrollbar_width = 1
-
-struct ScrollbarState {
-mut:
-	dragging    bool
-	drag_offset int
-}
-
-type ScrollGetFn = fn (&LayoutState) int
-
-type ScrollSetFn = fn (mut LayoutState, int)
-
-struct ScrollbarBindings {
-	viewport   ScrollGetFn
-	total      ScrollGetFn
-	offset     ScrollGetFn
-	set_offset ScrollSetFn
-}
-
 const file_refresh_interval_ms = 2000
 
 enum FilePromptMode {
@@ -110,9 +78,9 @@ mut:
 	open_visible_rows     int
 	editor_follow_cursor  bool = true
 	buffer_dirty          bool
-	tree_scrollbar        ScrollbarState
-	open_scrollbar        ScrollbarState
-	editor_scrollbar      ScrollbarState
+	tree_scrollbar        reactive.ScrollbarState
+	open_scrollbar        reactive.ScrollbarState
+	editor_scrollbar      reactive.ScrollbarState
 	tree_scrollbar_rect   reactive.TermRect
 	open_scrollbar_rect   reactive.TermRect
 	editor_scrollbar_rect reactive.TermRect
@@ -980,254 +948,8 @@ fn scrollbar_thumb_style() reactive.TermStyleSpec {
 	)
 }
 
-fn clamp_int(value int, min_val int, max_val int) int {
-	mut v := value
-	if v < min_val {
-		v = min_val
-	}
-	if v > max_val {
-		v = max_val
-	}
-	return v
-}
-
-fn scrollbar_thumb_height(track_height int, viewport int, total int) int {
-	if track_height <= 0 {
-		return 0
-	}
-	if total <= 0 || viewport <= 0 {
-		return track_height
-	}
-	if total <= viewport {
-		return track_height
-	}
-	mut size := (track_height * track_height) / total
-	if size < 3 {
-		size = 3
-	}
-	if size > track_height {
-		size = track_height
-	}
-	return size
-}
-
-fn scrollbar_thumb_local(track_height int, viewport int, total int, offset int, thumb_height int) int {
-	if track_height <= thumb_height || total <= viewport {
-		return 0
-	}
-	max_offset := total - viewport
-	if max_offset <= 0 {
-		return 0
-	}
-	track_range := track_height - thumb_height
-	mut pos := int(f64(offset) / f64(max_offset) * f64(track_range))
-	if pos < 0 {
-		pos = 0
-	}
-	if pos > track_range {
-		pos = track_range
-	}
-	return pos
-}
-
-fn scrollbar_offset_from_thumb(track_height int, viewport int, total int, thumb_height int, thumb_local int) int {
-	if total <= viewport || track_height <= thumb_height {
-		return 0
-	}
-	max_offset := total - viewport
-	track_range := track_height - thumb_height
-	if track_range <= 0 {
-		return 0
-	}
-	mut ratio := f64(thumb_local) / f64(track_range)
-	if ratio < 0 {
-		ratio = 0
-	}
-	if ratio > 1 {
-		ratio = 1
-	}
-	return int(ratio * f64(max_offset) + 0.5)
-}
-
-fn build_vertical_scrollbar_component(tag string, left int, top int, height int, mut sb ScrollbarState, bindings ScrollbarBindings, mut state LayoutState) ?reactive.VNode {
-	if height <= 0 || scrollbar_width <= 0 {
-		return none
-	}
-	viewport := bindings.viewport(state)
-	total := bindings.total(state)
-	offset := bindings.offset(state)
-	thumb_height := scrollbar_thumb_height(height, viewport, total)
-	if thumb_height <= 0 {
-		return none
-	}
-	thumb_local := scrollbar_thumb_local(height, viewport, total, offset, thumb_height)
-	mut children := []reactive.VNode{}
-	for i in 0 .. height - 1 {
-		children << reactive.text(reactive.NodeSpec{
-			props: reactive.TermProps{
-				top:  i
-				left: 0
-				text: '║'
-			}
-			style: scrollbar_track_style()
-		})
-	}
-	for i in 0 .. thumb_height - 1 {
-		children << reactive.text(reactive.NodeSpec{
-			props: reactive.TermProps{
-				top:  thumb_local + i
-				left: 0
-				text: '█'
-			}
-			style: scrollbar_thumb_style()
-		})
-	}
-	event_handler := fn [left, top, height, bindings, mut state, mut sb] (mut e reactive.UiEvent) {
-		viewport := bindings.viewport(state)
-		total := bindings.total(state)
-		if height <= 0 {
-			return
-		}
-		thumb_height := scrollbar_thumb_height(height, viewport, total)
-		if thumb_height <= 0 {
-			return
-		}
-		mut local_y := e.mouse.y - top
-		if local_y < 0 {
-			local_y = 0
-		}
-		if local_y >= height {
-			local_y = height - 1
-		}
-		current_thumb := scrollbar_thumb_local(height, viewport, total, bindings.offset(state),
-			thumb_height)
-		track_range := if height > thumb_height { height - thumb_height } else { 0 }
-		if e.kind == .mouse_down {
-			if local_y >= current_thumb && local_y < current_thumb + thumb_height {
-				sb.dragging = true
-				sb.drag_offset = local_y - current_thumb
-			} else {
-				sb.dragging = true
-				sb.drag_offset = thumb_height / 2
-				mut new_thumb := local_y - sb.drag_offset
-				new_thumb = clamp_int(new_thumb, 0, track_range)
-				new_offset := scrollbar_offset_from_thumb(height, viewport, total, thumb_height,
-					new_thumb)
-				bindings.set_offset(mut state, new_offset)
-			}
-		} else if e.kind == .mouse_move && sb.dragging {
-			mut new_thumb := local_y - sb.drag_offset
-			new_thumb = clamp_int(new_thumb, 0, track_range)
-			new_offset := scrollbar_offset_from_thumb(height, viewport, total, thumb_height,
-				new_thumb)
-			bindings.set_offset(mut state, new_offset)
-		} else if e.kind == .mouse_up {
-			sb.dragging = false
-		}
-	}
-	return reactive.relative(reactive.NodeSpec{
-		tag:      tag
-		props:    reactive.TermProps{
-			left:   left
-			top:    top
-			width:  scrollbar_width
-			height: height
-		}
-		style:    scrollbar_track_style()
-		children: children
-		events:   [event_handler]
-	})
-}
-
-fn build_horizontal_scrollbar_component(tag string, left int, top int, width int, mut sb ScrollbarState, bindings ScrollbarBindings, mut state LayoutState) ?reactive.VNode {
-	if width <= 0 {
-		return none
-	}
-	viewport := bindings.viewport(state)
-	total := bindings.total(state)
-	offset := bindings.offset(state)
-	thumb_width := scrollbar_thumb_height(width, viewport, total)
-	if thumb_width <= 0 {
-		return none
-	}
-	thumb_local := scrollbar_thumb_local(width, viewport, total, offset, thumb_width)
-	mut children := []reactive.VNode{}
-	for i in 0 .. width - 1 {
-		children << reactive.text(reactive.NodeSpec{
-			props: reactive.TermProps{
-				top:  0
-				left: i
-				text: '═'
-			}
-			style: scrollbar_track_style()
-		})
-	}
-	for i in 0 .. thumb_width - 1 {
-		children << reactive.text(reactive.NodeSpec{
-			props: reactive.TermProps{
-				top:  0
-				left: thumb_local + i
-				text: '█'
-			}
-			style: scrollbar_thumb_style()
-		})
-	}
-	event_handler := fn [left, width, bindings, mut state, mut sb] (mut e reactive.UiEvent) {
-		viewport := bindings.viewport(state)
-		total := bindings.total(state)
-		thumb_width := scrollbar_thumb_height(width, viewport, total)
-		if thumb_width <= 0 {
-			return
-		}
-		mut local_x := e.mouse.x - left
-		if local_x < 0 {
-			local_x = 0
-		}
-		if local_x >= width {
-			local_x = width - 1
-		}
-		current_thumb := scrollbar_thumb_local(width, viewport, total, bindings.offset(state),
-			thumb_width)
-		track_range := if width > thumb_width { width - thumb_width } else { 0 }
-		if e.kind == .mouse_down {
-			if local_x >= current_thumb && local_x < current_thumb + thumb_width {
-				sb.dragging = true
-				sb.drag_offset = local_x - current_thumb
-			} else {
-				sb.dragging = true
-				sb.drag_offset = thumb_width / 2
-				mut new_thumb := local_x - sb.drag_offset
-				new_thumb = clamp_int(new_thumb, 0, track_range)
-				new_offset := scrollbar_offset_from_thumb(width, viewport, total, thumb_width,
-					new_thumb)
-				bindings.set_offset(mut state, new_offset)
-			}
-		} else if e.kind == .mouse_move && sb.dragging {
-			mut new_thumb := local_x - sb.drag_offset
-			new_thumb = clamp_int(new_thumb, 0, track_range)
-			new_offset := scrollbar_offset_from_thumb(width, viewport, total, thumb_width,
-				new_thumb)
-			bindings.set_offset(mut state, new_offset)
-		} else if e.kind == .mouse_up {
-			sb.dragging = false
-		}
-	}
-	return reactive.relative(reactive.NodeSpec{
-		tag:      tag
-		props:    reactive.TermProps{
-			left:   left
-			top:    top
-			width:  width
-			height: 1
-		}
-		style:    scrollbar_track_style()
-		children: children
-		events:   [event_handler]
-	})
-}
-
-fn tree_scrollbar_bindings() ScrollbarBindings {
-	return ScrollbarBindings{
+fn tree_scrollbar_bindings() reactive.ScrollbarBindings[LayoutState] {
+	return reactive.ScrollbarBindings[LayoutState]{
 		viewport:   fn (state &LayoutState) int {
 			return if state.tree_visible_rows > 0 { state.tree_visible_rows } else { 1 }
 		}
@@ -1247,8 +969,8 @@ fn tree_scrollbar_bindings() ScrollbarBindings {
 	}
 }
 
-fn open_scrollbar_bindings() ScrollbarBindings {
-	return ScrollbarBindings{
+fn open_scrollbar_bindings() reactive.ScrollbarBindings[LayoutState] {
+	return reactive.ScrollbarBindings[LayoutState]{
 		viewport:   fn (state &LayoutState) int {
 			return if state.open_visible_rows > 0 { state.open_visible_rows } else { 1 }
 		}
@@ -1268,8 +990,8 @@ fn open_scrollbar_bindings() ScrollbarBindings {
 	}
 }
 
-fn editor_scrollbar_bindings() ScrollbarBindings {
-	return ScrollbarBindings{
+fn editor_scrollbar_bindings() reactive.ScrollbarBindings[LayoutState] {
+	return reactive.ScrollbarBindings[LayoutState]{
 		viewport:   fn (state &LayoutState) int {
 			return if state.editor_rect.height > 0 { state.editor_rect.height } else { 1 }
 		}
@@ -1302,9 +1024,9 @@ pub const spaces = [` `, `\t`, `\n`, `\r`, `\v`, `\f`]
 fn build_editor_view(mut state LayoutState, width int, height int, work_left int, main_top int) reactive.VNode {
 	state.editor_rect = reactive.TermRect{
 		x:      work_left
-		y:      main_top+1
+		y:      main_top + 1
 		width:  width
-		height: height+1
+		height: height + 1
 	}
 	if isnil(state.buffer) {
 		state.buffer = editor.new_text_buffer()
@@ -1322,7 +1044,7 @@ fn build_editor_view(mut state LayoutState, width int, height int, work_left int
 		x:      state.editor_view_x
 		y:      state.editor_view_y
 		width:  content_width
-		height: height+1
+		height: height + 1
 	}
 	slice := state.buffer.viewport_slice(viewport)
 	mut children := []reactive.VNode{}
@@ -1876,7 +1598,7 @@ fn build_layout_view(mut state LayoutState) reactive.VNode {
 		x:      tree_scroll_left
 		y:      tree_scroll_top
 		width:  scrollbar_width
-		height: tree_scroll_height+2
+		height: tree_scroll_height + 2
 	}
 	mut open_scroll_left := state.open_list_rect.x + state.open_list_rect.width - scrollbar_width
 	if open_scroll_left < state.open_list_rect.x {
@@ -1889,22 +1611,22 @@ fn build_layout_view(mut state LayoutState) reactive.VNode {
 		height: state.open_list_rect.height
 	}
 	mut props := map[string]string{}
-	props['viewport_width'] = itos(viewport_width-1)
+	props['viewport_width'] = itos(viewport_width - 1)
 	props['viewport_height'] = itos(viewport_height)
 	props['top_bar_height'] = itos(top_bar_height)
 	props['status_height'] = itos(status_bar_height)
-	props['status_top'] = itos(status_top+1)
-	props['main_top'] = itos(top_bar_height+1)
-	props['divider_height'] = itos(main_height-1)
-	props['main_height'] = itos(main_height-1)
+	props['status_top'] = itos(status_top + 1)
+	props['main_top'] = itos(top_bar_height + 1)
+	props['divider_height'] = itos(main_height - 1)
+	props['main_height'] = itos(main_height - 1)
 	props['left_width'] = itos(left_width)
 	props['divider_left'] = itos(left_width)
 	props['divider_width'] = itos(divider_width)
 	props['work_left'] = itos(work_left)
 	props['work_width'] = itos(work_width)
-	props['open_panel_height'] = itos(open_panel_height-1)
+	props['open_panel_height'] = itos(open_panel_height - 1)
 	props['open_panel_height_plus_one'] = itos(open_panel_height)
-	props['tree_panel_height'] = itos(tree_panel_height-1)
+	props['tree_panel_height'] = itos(tree_panel_height - 1)
 	status_hover := if state.hover_tag.len > 0 { state.hover_tag } else { 'none' }
 	mut status_line := 'Panel ${left_width}px | Editor ${work_width}px | Mouse ${state.mouse_x},${state.mouse_y} | Hover ${status_hover}'
 	if state.status_message.len > 0 {
@@ -1966,7 +1688,7 @@ fn build_layout_view(mut state LayoutState) reactive.VNode {
 	}
 	open_panel_view := open_files_component(mut state, left_width, open_panel_height)
 	file_tree_view := file_list_component(mut state, left_width, tree_panel_height)
-	work_panel_view := build_editor_view(mut state, work_width, main_height-1, work_left,
+	work_panel_view := build_editor_view(mut state, work_width, main_height - 1, work_left,
 		main_top)
 	state.editor_scrollbar_rect = reactive.TermRect{
 		x:      state.editor_rect.x + state.editor_rect.width - scrollbar_width
@@ -2000,21 +1722,18 @@ fn build_layout_view(mut state LayoutState) reactive.VNode {
 			]
 		})
 	}
-	if node := build_vertical_scrollbar_component('tree-scrollbar', state.tree_scrollbar_rect.x,
-		state.tree_scrollbar_rect.y, state.tree_scrollbar_rect.height, mut state.tree_scrollbar,
-		tree_scrollbar_bindings(), mut state)
+	if node := reactive.vertical_scrollbar('tree-scrollbar', state.tree_scrollbar_rect, mut
+		state, tree_scrollbar_bindings(), mut state.tree_scrollbar, scrollbar_width)
 	{
 		view.children << node
 	}
-	if node := build_vertical_scrollbar_component('open-scrollbar', state.open_scrollbar_rect.x,
-		state.open_scrollbar_rect.y, state.open_scrollbar_rect.height, mut state.open_scrollbar,
-		open_scrollbar_bindings(), mut state)
+	if node := reactive.vertical_scrollbar('open-scrollbar', state.open_scrollbar_rect, mut
+		state, open_scrollbar_bindings(), mut state.open_scrollbar, scrollbar_width)
 	{
 		view.children << node
 	}
-	if node := build_vertical_scrollbar_component('editor-scrollbar', state.editor_scrollbar_rect.x,
-		state.editor_scrollbar_rect.y, state.editor_scrollbar_rect.height, mut state.editor_scrollbar,
-		editor_scrollbar_bindings(), mut state)
+	if node := reactive.vertical_scrollbar('editor-scrollbar', state.editor_scrollbar_rect, mut
+		state, editor_scrollbar_bindings(), mut state.editor_scrollbar, scrollbar_width)
 	{
 		view.children << node
 	}

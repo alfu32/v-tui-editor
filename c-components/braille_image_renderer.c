@@ -20,6 +20,7 @@ static uint32_t get_terminal_width() {
 }
 
 int main(int argc, char **argv) {
+    int use_color = 0;
     int threshold = 128;
     setlocale(LC_ALL, "");
     if (argc < 2) {
@@ -27,9 +28,13 @@ int main(int argc, char **argv) {
         return 1;
     }
     if (argc >= 3) {
-        threshold = atoi(argv[2]);
-        if (threshold < 0) threshold = 0;
-        if (threshold > 255) threshold = 255;
+        if (strcmp(argv[2], "color") == 0) {
+            use_color = 1;
+        } else {
+            threshold = atoi(argv[2]);
+            if (threshold < 0) threshold = 0;
+            if (threshold > 255) threshold = 255;
+        }
     }
 
     int w, h, c;
@@ -67,8 +72,20 @@ int main(int argc, char **argv) {
                     int bit_index =
                         (dx == 0 ? 0 : 3) + dy;
 
-                    if (gray < threshold)
-                        dots |= braille_dot(bit_index);
+                        int r = p[0];
+                        int g = p[1];
+                        int b = p[2];
+
+                        // grayscale threshold still used for deciding ON/OFF of dots
+                        int gray = (r + g + b) / 3;
+                        if (gray < threshold)
+                        bits |= (1 << dot_index);
+
+                        // accumulate color for averaging
+                        sum_r += r;
+                        sum_g += g;
+                        sum_b += b;
+                        samples++;
                 }
             }
 
