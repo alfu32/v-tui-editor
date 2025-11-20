@@ -948,70 +948,6 @@ fn scrollbar_thumb_style() reactive.TermStyleSpec {
 	)
 }
 
-fn tree_scrollbar_bindings() reactive.ScrollbarBindings[LayoutState] {
-	return reactive.ScrollbarBindings[LayoutState]{
-		viewport:   fn (state &LayoutState) int {
-			return if state.tree_visible_rows > 0 { state.tree_visible_rows } else { 1 }
-		}
-		total:      fn (state &LayoutState) int {
-			return state.file_entries.len
-		}
-		offset:     fn (state &LayoutState) int {
-			return state.file_tree_scroll
-		}
-		set_offset: fn (mut state LayoutState, value int) {
-			state.file_tree_scroll = clamp_scroll(value, if state.tree_visible_rows > 0 {
-				state.tree_visible_rows
-			} else {
-				1
-			}, state.file_entries.len)
-		}
-	}
-}
-
-fn open_scrollbar_bindings() reactive.ScrollbarBindings[LayoutState] {
-	return reactive.ScrollbarBindings[LayoutState]{
-		viewport:   fn (state &LayoutState) int {
-			return if state.open_visible_rows > 0 { state.open_visible_rows } else { 1 }
-		}
-		total:      fn (state &LayoutState) int {
-			return state.open_files.len
-		}
-		offset:     fn (state &LayoutState) int {
-			return state.open_files_scroll
-		}
-		set_offset: fn (mut state LayoutState, value int) {
-			state.open_files_scroll = clamp_scroll(value, if state.open_visible_rows > 0 {
-				state.open_visible_rows
-			} else {
-				1
-			}, state.open_files.len)
-		}
-	}
-}
-
-fn editor_scrollbar_bindings() reactive.ScrollbarBindings[LayoutState] {
-	return reactive.ScrollbarBindings[LayoutState]{
-		viewport:   fn (state &LayoutState) int {
-			return if state.editor_rect.height > 0 { state.editor_rect.height } else { 1 }
-		}
-		total:      fn (state &LayoutState) int {
-			if isnil(state.buffer) {
-				return 0
-			}
-			return state.buffer.lines.len
-		}
-		offset:     fn (state &LayoutState) int {
-			return state.editor_view_y
-		}
-		set_offset: fn (mut state LayoutState, value int) {
-			state.editor_view_y = value
-			state.editor_follow_cursor = false
-			clamp_editor_view(mut state, state.editor_rect.width, state.editor_rect.height)
-		}
-	}
-}
-
 fn refresh_file_entries(mut state LayoutState) {
 	if isnil(state.tree) {
 		return
@@ -1373,6 +1309,103 @@ fn ensure_cursor_visible(mut state LayoutState, width int, height int) {
 	clamp_editor_view(mut state, width, height)
 }
 
+fn tree_scrollbar_bindings(state_ptr voidptr) reactive.ScrollbarBindings {
+	return reactive.ScrollbarBindings{
+		context:    state_ptr
+		viewport:   fn (ctx voidptr) int {
+			unsafe {
+				state := &LayoutState(ctx)
+				return if state.tree_visible_rows > 0 { state.tree_visible_rows } else { 1 }
+			}
+		}
+		total:      fn (ctx voidptr) int {
+			unsafe {
+				state := &LayoutState(ctx)
+				return state.file_entries.len
+			}
+		}
+		offset:     fn (ctx voidptr) int {
+			unsafe {
+				state := &LayoutState(ctx)
+				return state.file_tree_scroll
+			}
+		}
+		set_offset: fn (ctx voidptr, value int) {
+			unsafe {
+				mut state := &LayoutState(ctx)
+				visible := if state.tree_visible_rows > 0 { state.tree_visible_rows } else { 1 }
+				state.file_tree_scroll = clamp_scroll(value, visible, state.file_entries.len)
+			}
+		}
+	}
+}
+
+fn open_scrollbar_bindings(state_ptr voidptr) reactive.ScrollbarBindings {
+	return reactive.ScrollbarBindings{
+		context:    state_ptr
+		viewport:   fn (ctx voidptr) int {
+			unsafe {
+				state := &LayoutState(ctx)
+				return if state.open_visible_rows > 0 { state.open_visible_rows } else { 1 }
+			}
+		}
+		total:      fn (ctx voidptr) int {
+			unsafe {
+				state := &LayoutState(ctx)
+				return state.open_files.len
+			}
+		}
+		offset:     fn (ctx voidptr) int {
+			unsafe {
+				state := &LayoutState(ctx)
+				return state.open_files_scroll
+			}
+		}
+		set_offset: fn (ctx voidptr, value int) {
+			unsafe {
+				mut state := &LayoutState(ctx)
+				visible := if state.open_visible_rows > 0 { state.open_visible_rows } else { 1 }
+				state.open_files_scroll = clamp_scroll(value, visible, state.open_files.len)
+			}
+		}
+	}
+}
+
+fn editor_scrollbar_bindings(state_ptr voidptr) reactive.ScrollbarBindings {
+	return reactive.ScrollbarBindings{
+		context:    state_ptr
+		viewport:   fn (ctx voidptr) int {
+			unsafe {
+				state := &LayoutState(ctx)
+				return if state.editor_rect.height > 0 { state.editor_rect.height } else { 1 }
+			}
+		}
+		total:      fn (ctx voidptr) int {
+			unsafe {
+				state := &LayoutState(ctx)
+				if isnil(state.buffer) {
+					return 0
+				}
+				return state.buffer.lines.len
+			}
+		}
+		offset:     fn (ctx voidptr) int {
+			unsafe {
+				state := &LayoutState(ctx)
+				return state.editor_view_y
+			}
+		}
+		set_offset: fn (ctx voidptr, value int) {
+			unsafe {
+				mut state := &LayoutState(ctx)
+				state.editor_view_y = value
+				state.editor_follow_cursor = false
+				clamp_editor_view(mut state, state.editor_rect.width, state.editor_rect.height)
+			}
+		}
+	}
+}
+
 fn open_files_component(mut state LayoutState, width int, height int) reactive.VNode {
 	mut b := strings.new_builder(128)
 	mut available := if height <= 0 { 1 } else { height }
@@ -1722,18 +1755,19 @@ fn build_layout_view(mut state LayoutState) reactive.VNode {
 			]
 		})
 	}
-	if node := reactive.vertical_scrollbar('tree-scrollbar', state.tree_scrollbar_rect, mut
-		state, tree_scrollbar_bindings(), mut state.tree_scrollbar, scrollbar_width)
+	state_ptr := unsafe { voidptr(&state) }
+	if node := reactive.vertical_scrollbar('tree-scrollbar', state.tree_scrollbar_rect,
+		tree_scrollbar_bindings(state_ptr), mut state.tree_scrollbar, scrollbar_width)
 	{
 		view.children << node
 	}
-	if node := reactive.vertical_scrollbar('open-scrollbar', state.open_scrollbar_rect, mut
-		state, open_scrollbar_bindings(), mut state.open_scrollbar, scrollbar_width)
+	if node := reactive.vertical_scrollbar('open-scrollbar', state.open_scrollbar_rect,
+		open_scrollbar_bindings(state_ptr), mut state.open_scrollbar, scrollbar_width)
 	{
 		view.children << node
 	}
-	if node := reactive.vertical_scrollbar('editor-scrollbar', state.editor_scrollbar_rect, mut
-		state, editor_scrollbar_bindings(), mut state.editor_scrollbar, scrollbar_width)
+	if node := reactive.vertical_scrollbar('editor-scrollbar', state.editor_scrollbar_rect,
+		editor_scrollbar_bindings(state_ptr), mut state.editor_scrollbar, scrollbar_width)
 	{
 		view.children << node
 	}

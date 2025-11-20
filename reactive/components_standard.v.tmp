@@ -1,0 +1,9 @@
+module reactive
+
+type ScrollMetricFn = fn (voidptr) int
+ type ScrollSetterFn = fn (voidptr, int)
+
+pub struct ButtonSpec {
+pub:
+	 tag string
+...
